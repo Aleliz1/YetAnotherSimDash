@@ -1,0 +1,29 @@
+{
+  "ScreenCount": 4,
+  "InGameScreensIndexs": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "IdleScreensIndexs": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "PitScreensIndexs": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "MainPreviewIndex": 0,
+  "IsOverlay": false,
+  "OverlaySizeWarning": true,
+  "MetadataVersion": 2,
+  "EnableOnDashboardMessaging": false,
+  "Width": 1920,
+  "Height": 1080,
+  "DashboardVersion": "4.0.0"
+}

@@ -1,0 +1,13 @@
+{
+  "name": "mangodash-multisim",
+  "version": "4.0.0",
+  "private": true,
+  "description": "Native SimHub dashboards for ultrawide and Full HD second monitors",
+  "scripts": {
+    "generate": "node tools\\generate.mjs",
+    "test": "node --test tests\\dashboard.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
