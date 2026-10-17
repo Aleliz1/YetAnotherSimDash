@@ -140,7 +140,42 @@ test('original ribbons are transparent PNGs in a deterministic named-resource ZI
     }
     const idle = items.find(i => i.Name === 'Standby layout');
     assert.equal(createDashboard(width).Screens[0].Items.at(-1).Name, idle.Name, 'Welcome draws over the driving layout');
+    const standby = idle.Childrens;
+    assert.ok(!standby.some(i => ['Standby brand', 'Standby eyebrow'].includes(i.Name)));
+    const heading = standby.find(i => i.Name === 'Standby heading');
+    assert.equal(heading.Left, 0);
+    assert.equal(heading.Width, width);
+    assert.equal(heading.Top + heading.Height / 2, 540);
+    assert.equal(heading.HorizontalAlignment, 1);
+    for (const [index, ribbon] of standby.filter(i => i.Name.startsWith('Standby ribbon')).entries()) {
+      const expression = ribbon.Bindings.Top.Formula.Expression;
+      assert.ok(expression.includes(`/ ${5200 + index * 1400} + ${index * 2}`));
+    }
     for (const child of idle.Childrens) assert.ok(child.Bindings.Opacity);
+  }
+});
+
+test('header is unbranded, live status sits under the flag, and panels use the freed space', () => {
+  for (const width of [1920, 2560]) {
+    const dashboard = createDashboard(width), items = dashboard.Screens[0].Items;
+    const entries = flatten(items);
+    for (const name of ['Top accent', 'Brand', 'Edition', 'Footer']) {
+      assert.ok(!entries.some(entry => entry.Name === name), `${name} is removed`);
+    }
+    const driving = entries.find(entry => entry.Name === 'Live driving');
+    const flag = driving.Childrens.find(entry => entry.Name === 'Track flag');
+    const status = driving.Childrens.find(entry => entry.Name === 'Status');
+    assert.ok(status);
+    assert.equal(status.Left, flag.Left);
+    assert.equal(status.Width, flag.Width);
+    assert.ok(status.Top >= flag.Top + flag.Height);
+    assert.equal(items.find(entry => entry.Name === 'Status'), undefined);
+    assert.equal(items.find(entry => entry.Name === 'Driving panel').Top, 158);
+    assert.equal(items.find(entry => entry.Name === 'Driving panel').Height, 910);
+    const music = items.find(entry => entry.Name === 'Music panel');
+    assert.equal(music.Left + music.Width, width - 32);
+    assert.equal(music.Top, 16);
+    assert.equal(entries.find(entry => entry.Name === 'Music artist').Text, 'DEMO ARTIST');
   }
 });
 

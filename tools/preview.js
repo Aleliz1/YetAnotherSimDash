@@ -11,9 +11,9 @@
   const animate = document.getElementById('animate');
   const entries = [];
   const tracks = [
-    ['NIGHT DRIVE / DEMO TRACK', 'MangoDash Radio / Demo artist'],
-    ['COASTAL RUN / DEMO TRACK', 'MangoDash Radio / Demo artist'],
-    ['AFTER THE CORNER / DEMO TRACK', 'MangoDash Radio / Demo artist'],
+    ['NIGHT DRIVE / DEMO TRACK', 'DEMO ARTIST'],
+    ['COASTAL RUN / DEMO TRACK', 'DEMO ARTIST'],
+    ['AFTER THE CORNER / DEMO TRACK', 'DEMO ARTIST'],
   ];
   let trackIndex = 0;
   let musicPaused = false;

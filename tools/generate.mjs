@@ -132,33 +132,26 @@ export function createDashboard(width) {
   const leftW = Math.round((usable - gap * 2) * 0.29);
   const centerW = usable - gap * 2 - leftW * 2;
   const leftX = margin, centerX = leftX + leftW + gap, rightX = centerX + centerW + gap;
-  const top = 178, mainH = 654, bottom = 852, bottomH = 162;
-  const identityW = Math.round(usable * 0.46), statusW = 280;
-  const musicX = margin + identityW + gap, musicW = width - margin - statusW - gap - musicX;
+  const top = 158, bottom = 906, bottomH = 162, mainH = bottom - top - 20;
+  const identityW = Math.round(usable * 0.46);
+  const musicX = margin + identityW + gap, musicW = width - margin - musicX;
   const items = [];
-  items.push(rect('Top accent', margin, 28, 64, 4, colors.cyan));
-  items.push(label('Brand', 'MangoDash', margin, 44, 330, 74, 48));
-  items.push(label('Edition', '/ MULTISIM', margin + 330, 68, 112, 30, 16, colors.muted));
-  items.push(label('Game name', 'ASSETTO CORSA', margin + 450, 42, identityW - 450, 38, 24, colors.white,
+  items.push(label('Game name', 'ASSETTO CORSA', margin, 28, identityW, 38, 24, colors.white,
     'return gameName();'));
-  items.push(label('Car and track', 'CAR / TRACK', margin + 450, 84, identityW - 450, 34, 18, colors.muted,
-    `var s = live() ? text(data('CarModel')) + ' / ' + text(data('TrackName')) : 'SECOND MONITOR / NATIVE SIMHUB'; return s.length > ${Math.floor((identityW - 450) / 11)} ? s.slice(0, ${Math.floor((identityW - 450) / 11) - 3}) + '...' : s;`));
-  const status = label('Status', 'LIVE TELEMETRY', width - margin - statusW, 52, statusW, 46, 21, colors.cyan, 'return status();', 2);
-  status.Bindings.TextColor = binding('return statusColor();');
-  items.push(status);
-  items.push(rect('Header divider', margin, 140, usable, 1, colors.line));
+  items.push(label('Car and track', 'CAR / TRACK', margin, 70, identityW, 34, 18, colors.muted,
+    `var s = live() ? text(data('CarModel')) + ' / ' + text(data('TrackName')) : 'SECOND MONITOR / NATIVE SIMHUB'; return s.length > ${Math.floor(identityW / 11)} ? s.slice(0, ${Math.floor(identityW / 11) - 3}) + '...' : s;`));
+  items.push(rect('Header divider', margin, 116, usable, 1, colors.line));
   const settings = [];
   const settingW = usable / 5;
   [['BrakeBias', 'BRAKE BIAS'], ['ABSLevel', 'ABS'], ['TCLevel', 'TC'],
     ['TractionControlCut', 'TC2 / CUT'], ['EngineMap', 'ENGINE MAP']].forEach(([key, title], index) => {
     const x = margin + index * settingW;
     const titleW = key === 'BrakeBias' || key === 'EngineMap' ? 132 : 108;
-    settings.push(label(`${key} setting label`, title, x + 12, 146, titleW, 26, 17, colors.muted));
-    settings.push(label(`${key} setting`, '--', x + titleW + 28, 146, settingW - titleW - 40, 26, 19, colors.cyan,
+    settings.push(label(`${key} setting label`, title, x + 12, 122, titleW, 26, 17, colors.muted));
+    settings.push(label(`${key} setting`, '--', x + titleW + 28, 122, settingW - titleW - 40, 26, 19, colors.cyan,
       `return carSetting('${key}');`));
   });
   items.push(layer('Car settings', settings, 'return live();'));
-  items.push(label('Footer', 'MangoDash / MULTISIM     |     LIVE VALUES ONLY - UNAVAILABLE DATA: --', margin, 1030, usable, 26, 16, colors.muted));
 
   const driving = [];
   panel(driving, 'Driving panel', centerX, top, centerW, bottom + bottomH - top);
@@ -172,6 +165,10 @@ export function createDashboard(width) {
   trackFlag.Bindings.TextColor = binding('return trackFlagColor();');
   trackFlag.Bindings.Visible = binding("return mode() === 'race';");
   driving.push(trackFlag);
+  const status = label('Status', 'LIVE TELEMETRY', centerX + centerW / 2, top + 60,
+    (centerW - 48) / 2, 28, 19, colors.cyan, 'return status();', 2);
+  status.Bindings.TextColor = binding('return statusColor();');
+  driving.push(status);
   const diameter = Math.min(centerW * 0.57, 480), radius = diameter / 2 - 8;
   const cx = centerX + centerW * 0.60, cy = top + 280;
   const speedD = Math.min(centerW * 0.35, 320);
@@ -417,25 +414,25 @@ export function createDashboard(width) {
   });
   driving.push(layer('Circuit boost', boost, "return live() && mode() === 'race';"));
   const summary = [];
-  summary.push(label('Strategy summary', '--', centerX + 24, 946, centerW - 48, 24, 15, colors.amber,
+  summary.push(label('Strategy summary', '--', centerX + 24, bottom + 94, centerW - 48, 24, 15, colors.amber,
     `var s = mode() === 'rally' ? 'STAGE ' + detailReading('stageProgressPercent', 'percent') + ' / LEFT ' + detailReading('stageDistanceKm', 'distance') + ' / SPLIT ' + detailReading('stageSplitSeconds', 'delta') : 'FUEL ' + detailReading('fuelLaps', 'laps') + ' / SESSION ' + detailReading('sessionSeconds', 'seconds') + ' / LAPS ' + detailReading('sessionLaps', 'count'); return s.length > ${Math.floor((centerW - 48) / 10)} ? s.slice(0, ${Math.floor((centerW - 48) / 10) - 3}) + '...' : s;`));
-  summary.push(label('Warning summary', '--', centerX + 24, 978, centerW - 48, 24, 14, colors.red,
+  summary.push(label('Warning summary', '--', centerX + 24, bottom + 126, centerW - 48, 24, 14, colors.red,
     `var s = raceWarnings(); return s.length > ${Math.floor((centerW - 48) / 9)} ? s.slice(0, ${Math.floor((centerW - 48) / 9) - 3}) + '...' : s;`));
   summary[1].Bindings.TextColor = binding("return raceWarnings() === 'WARNINGS / CHECK GAME' || !live() ? '#FFA18D73' : '#FFFF3B24';");
   driving.push(...summary);
   const music = [];
-  panel(music, 'Music panel', musicX, 36, musicW, 88);
+  panel(music, 'Music panel', musicX, 16, musicW, 88);
   const controlsW = 260;
   const trackW = musicW - controlsW - 48;
-  music.push(label('Music title', 'NIGHT DRIVE / DEMO TRACK', musicX + 16, 48, trackW, 26, 18, colors.cyan,
+  music.push(label('Music title', 'NIGHT DRIVE / DEMO TRACK', musicX + 16, 28, trackW, 26, 18, colors.cyan,
     `var s = mediaTitle(); return s.length > ${Math.floor(trackW / 18)} ? s.slice(0, ${Math.floor(trackW / 18) - 3}) + '...' : s;`));
-  music.push(label('Music artist', 'MangoDash Radio / Demo artist', musicX + 16, 84, trackW, 22, 14, colors.muted,
+  music.push(label('Music artist', 'DEMO ARTIST', musicX + 16, 64, trackW, 22, 14, colors.muted,
     `var s = mediaArtist(); return s.length > ${Math.floor(trackW / 14)} ? s.slice(0, ${Math.floor(trackW / 14) - 3}) + '...' : s;`));
   Object.entries(mediaActions).forEach(([title, action], index) => {
     const x = musicX + musicW - controlsW - 12 + index * 88;
-    music.push(rect(`Music ${title} background`, x, 61, 84, 38, colors.line));
-    music.push(label(`Music ${title} text`, title.toUpperCase(), x + 2, 61, 80, 38, 12, colors.white, undefined, 1));
-    music.push(mediaButton(`Music ${title} button`, x, 61, 84, 38, action));
+    music.push(rect(`Music ${title} background`, x, 41, 84, 38, colors.line));
+    music.push(label(`Music ${title} text`, title.toUpperCase(), x + 2, 41, 80, 38, 12, colors.white, undefined, 1));
+    music.push(mediaButton(`Music ${title} button`, x, 41, 84, 38, action));
   });
   lower.push(layer('Music controls', music, 'return musicPage();'));
   items.push(layer('Live lower strip', lower, 'return live();'));
@@ -446,13 +443,11 @@ export function createDashboard(width) {
     idle.push(item('ImageItem', `Standby ribbon ${index + 1}`, margin, 490 + index * 48, usable, 360, {
       Image: image.name, AutoSize: false, AutoSizeScale: 1, BackgroundColor: '#00000000',
       Bindings: {
-        Top: binding(`if (!live()) root.ribbonOffset = 24 * Math.sin(new Date().getTime() / ${6500 + index * 1800} + ${index * 2}); return ${490 + index * 48} + (root.ribbonOffset || 0);`),
+        Top: binding(`if (!live()) root.ribbonOffset = 24 * Math.sin(new Date().getTime() / ${5200 + index * 1400} + ${index * 2}); return ${490 + index * 48} + (root.ribbonOffset || 0);`),
       },
     }));
   });
-  idle.push(label('Standby brand', 'MangoDash', margin + 64, 250, usable - 128, 110, 80, colors.white, undefined, 1));
-  idle.push(label('Standby eyebrow', 'ONE DASH. FOUR SIMULATORS.', margin + 64, 370, usable - 128, 36, 22, colors.cyan, undefined, 1));
-  idle.push(label('Standby heading', 'WAITING FOR GAME...', margin + 64, 430, usable - 128, 50, 30, colors.white,
+  idle.push(label('Standby heading', 'WAITING FOR GAME...', 0, (height - 50) / 2, width, 50, 30, colors.white,
     "return live() ? 'WELCOME / ' + gameName() : running() ? 'GAME NOT RECOGNIZED.' : 'WAITING FOR GAME...';", 1));
   idle.push(label('Standby hint', '', margin + 64, 860, usable - 128, 40, 22, colors.muted,
     "return live() ? 'YOUR DASH IS READY.' : running() ? 'Current game ID: ' + text(read('DataCorePlugin.CurrentGame')) : 'Launch your game and let SimHub connect.';", 1));
@@ -592,7 +587,7 @@ export async function generate() {
     const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MangoDash MultiSim / ${width} x 1080 preview</title><style>${css}</style></head>
-<body><nav aria-label="Preview controls"><strong>MangoDash <span>/ DESIGN PREVIEW</span></strong>
+<body><nav aria-label="Preview controls"><strong>DESIGN PREVIEW</strong>
 <label>Simulator <select id="game">
 <option value="AssettoCorsa">Assetto Corsa / Content Manager</option>
 <option value="AssettoCorsaRally">Assetto Corsa Rally</option>
