@@ -613,7 +613,7 @@ test('detail readings use direct SimHub data and preserve units without guessed 
 test('dashboard has one overview screen and no page navigation button', () => {
   for (const width of [1920, 2560]) {
     const dash = createDashboard(width), screen = dash.Screens[0], items = flatten(screen.Items), names = new Set();
-    assert.deepEqual(dash.Screens.map(s => s.Name), ['Y.A.S.S / Overview']);
+    assert.deepEqual(dash.Screens.map(s => s.Name), ['Y.A.S.D / Overview']);
     assert.equal(dash.Metadata.ScreenCount, 1);
     assert.deepEqual(dash.Metadata.InGameScreensIndexs, [0]);
     assert.deepEqual(dash.Metadata.IdleScreensIndexs, [0]);
@@ -1183,7 +1183,7 @@ for (const width of [1920, 2560]) {
   });
   test(`${width}x1080 native output is persistent, deterministic, correctly sized and self-contained`, async () => {
     const dashboard = createDashboard(width);
-    const file = new URL(`../${width}x1080/Y.A.S.S%20${width}x1080.djson`, import.meta.url);
+    const file = new URL(`../${width}x1080/Y.A.S.D%20${width}x1080.djson`, import.meta.url);
     assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), dashboard);
     assert.equal(dashboard.BaseWidth, width);
     assert.equal(dashboard.BaseHeight, 1080);

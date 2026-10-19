@@ -1,4 +1,4 @@
-# YetAnotherSimDash (Y.A.S.S)
+# YetAnotherSimDash (Y.A.S.D)
 
 An original, high-contrast **native SimHub Dash Studio dashboard** for a second
 monitor. The dashboard uses native SimHub controls and bundled original ribbon
@@ -10,8 +10,8 @@ particularly in LMU, may require a game-specific telemetry integration.
 
 | Folder | Native dashboard | Offline design preview |
 | --- | --- | --- |
-| [2560x1080](./2560x1080/) | [Y.A.S.S 2560x1080.djson](./2560x1080/Y.A.S.S%202560x1080.djson) | [Open preview](./2560x1080/preview.html) |
-| [1920x1080](./1920x1080/) | [Y.A.S.S 1920x1080.djson](./1920x1080/Y.A.S.S%201920x1080.djson) | [Open preview](./1920x1080/preview.html) |
+| [2560x1080](./2560x1080/) | [Y.A.S.D 2560x1080.djson](./2560x1080/Y.A.S.D%202560x1080.djson) | [Open preview](./2560x1080/preview.html) |
+| [1920x1080](./1920x1080/) | [Y.A.S.D 1920x1080.djson](./1920x1080/Y.A.S.D%201920x1080.djson) | [Open preview](./1920x1080/preview.html) |
 
 Both versions use the full native resolution; the ultrawide version expands
 the panels rather than stretching the Full HD dashboard. Segoe UI is supplied
@@ -54,7 +54,7 @@ channels that SimHub does not expose through its normalized game data.
    that folder. Do not copy the HTML preview into SimHub. Administrator
    permission may be needed. You can install both resolutions; their names
    and dashboard IDs are different.
-4. Restart SimHub. Find **Y.A.S.S 2560x1080** or **Y.A.S.S 1920x1080** in
+4. Restart SimHub. Find **Y.A.S.D 2560x1080** or **Y.A.S.D 1920x1080** in
   **Dash Studio > Dashboards**. When upgrading, replace older branded files
   rather than keeping duplicate dashboards; dashboard IDs are preserved.
 5. Select **Run**, move the dashboard window to your second monitor, then
@@ -98,7 +98,7 @@ sample data only and does not add those values to the native SimHub dashboard.
 ### Animated standby and welcome
 
 Standby features two original soft amber/orange ribbon images drifting slowly
-behind Y.A.S.S branding. Native time-driven position bindings target 20
+behind Y.A.S.D branding. Native time-driven position bindings target 20
 updates/second; there is no video, web view, Sony artwork or network dependency.
 The five supported games are listed in one compact line.
 
@@ -249,7 +249,7 @@ while the gauge flashes. Select **Low fuel** in a preview to try it; flashing
 does not require **Animate demo**.
 
 Oil and coolant gauges show direct temperature readings with steady colors.
-Y.A.S.S does not invent per-car warning thresholds.
+Y.A.S.D does not invent per-car warning thresholds.
 
 ## Instrument scales
 
@@ -279,7 +279,7 @@ The displayed scale rounds up to the next 500 RPM (limits up to 4,000) or next
 1,000 RPM. If SimHub provides no limit, the dial uses an 8,000 RPM display-only
 scale and labels the limit **UNAVAILABLE**; it does not claim that value is the
 car's redline or calculate a shift cue from it. No per-car RPM or speed ranges
-are configured by Y.A.S.S.
+are configured by Y.A.S.D.
 
 The RPM bezel has a continuous light diffuser instead of separate shift LEDs.
 Its native dial strokes blend from dim amber to bright amber at 70% of the

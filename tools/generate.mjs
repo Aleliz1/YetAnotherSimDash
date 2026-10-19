@@ -615,7 +615,7 @@ export function createDashboard(width) {
   }
   setRefreshRates(items);
   const screen = {
-    RenderingSkip: 0, Name: 'Y.A.S.S / Overview', InGameScreen: true, IdleScreen: true, PitScreen: true,
+    RenderingSkip: 0, Name: 'Y.A.S.D / Overview', InGameScreen: true, IdleScreen: true, PitScreen: true,
     ScreenId: id.replace(/1$/, '2'), BackgroundLayerScreenId: '00000000-0000-0000-0000-000000000000',
     AllowOverlays: false, IsForegroundLayer: false, IsOverlayLayer: false,
     OverlayTriggerExpression: { Expression: '' }, ScreenEnabledExpression: { Expression: '' },
@@ -645,7 +645,7 @@ export async function generate() {
   const js = await readFile(path.join(root, 'tools', 'preview.js'), 'utf8');
   for (const width of [2560, 1920]) {
     const folder = path.join(root, `${width}x1080`);
-    const name = `Y.A.S.S ${width}x1080.djson`;
+    const name = `Y.A.S.D ${width}x1080.djson`;
     const dashboard = createDashboard(width);
     await mkdir(folder, { recursive: true });
     await writeFile(path.join(folder, name), JSON.stringify(dashboard, null, 2) + '\n');
@@ -654,8 +654,8 @@ export async function generate() {
     const previewModel = structuredClone(dashboard);
     const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Y.A.S.S / ${width} x 1080 preview</title><style>${css}</style></head>
-<body><nav aria-label="Preview controls"><strong>Y.A.S.S <span>/ DESIGN PREVIEW</span></strong>
+<title>Y.A.S.D / ${width} x 1080 preview</title><style>${css}</style></head>
+<body><nav aria-label="Preview controls"><strong>Y.A.S.D <span>/ DESIGN PREVIEW</span></strong>
 <label>Simulator <select id="game">
 <option value="AssettoCorsa">Assetto Corsa / Content Manager</option>
 <option value="AssettoCorsaRally">Assetto Corsa Rally</option>

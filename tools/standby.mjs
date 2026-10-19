@@ -107,14 +107,14 @@ function gaugeHub() {
   header[9] = 6;
   const bytes = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
     chunk('IHDR', header), chunk('IDAT', deflateSync(pixels)), chunk('IEND', Buffer.alloc(0))]);
-  const name = 'Y.A.S.S RPM center hub';
+  const name = 'Y.A.S.D RPM center hub';
   return { name, bytes, metadata: { Name: name, Extension: '.png', Width: width, Height: height,
     Length: bytes.length, MD5: createHash('md5').update(bytes).digest('hex'), Modified: false, Optimized: true } };
 }
 
 export const standbyImages = [0, 1.8].map((phase, index) => {
   const { bytes, width, height } = ribbon(phase);
-  const name = `Y.A.S.S ribbon ${index + 1}`;
+  const name = `Y.A.S.D ribbon ${index + 1}`;
   return {
     name, bytes,
     metadata: { Name: name, Extension: '.png', Width: width, Height: height,
@@ -123,9 +123,9 @@ export const standbyImages = [0, 1.8].map((phase, index) => {
 });
 
 export const shiftLightImages = [
-  ['Y.A.S.S RPM LED off', [110, 49, 9], true],
-  ['Y.A.S.S RPM LED amber', [255, 176, 46], false],
-  ['Y.A.S.S RPM LED red', [255, 59, 36], false],
+  ['Y.A.S.D RPM LED off', [110, 49, 9], true],
+  ['Y.A.S.D RPM LED amber', [255, 176, 46], false],
+  ['Y.A.S.D RPM LED red', [255, 59, 36], false],
 ].map(([name, color, dim]) => {
   const { bytes, width, height } = led(color, dim);
   return {
