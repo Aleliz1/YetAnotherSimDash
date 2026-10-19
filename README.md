@@ -17,29 +17,6 @@ Both versions use the full native resolution; the ultrawide version expands
 the panels rather than stretching the Full HD dashboard. Segoe UI is supplied
 with Windows.
 
-### M3 E46-inspired night colours
-
-Both resolutions use near-black neutral backgrounds, warm-white main instrument markings
-and headings, amber digital readings, orange accents and higher-contrast secondary labels.
-Three small blue/dark-blue/red accents evoke the M-style cluster. The standby
-ribbons and offline preview controls use the same warm palette. Gear-change
-highlights are warm gold rather than cyan; redline and warning accents stay red.
-Green remains for faster lap deltas and throttle, with distinct labelled pedal
-colours. Native map class colours remain controlled by SimHub/game class data
-to preserve multiclass identification. This is an original palette inspired
-by a night-time cluster, not an exact colour calibration or a guarantee of
-reduced eye strain; set your monitor brightness appropriately for the room.
-
-Two small 100px gauges in the upper-left of the cluster show **OIL** and
-**COOLANT** temperature using normalized `OilTemperature` and `WaterTemperature`
-in Celsius. Coolant is the engine-temperature reading, not cylinder-head metal
-temperature. Zero/missing/nonpositive readings show `--` with no needle. Fixed
-0-170 C oil and 0-130 C coolant scales are display ranges, not vehicle-specific
-safe limits; hotter valid readings retain their numeric value with a capped needle.
-
-The dashboard has no 12V or hybrid-SOC gauges; it does not add manually mapped
-channels that SimHub does not expose through its normalized game data.
-
 ## Install and run
 
 1. Install/update [SimHub](https://www.simhubdash.com/download-2/). Enable
