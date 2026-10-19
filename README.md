@@ -10,8 +10,8 @@ particularly in LMU, may require a game-specific telemetry integration.
 
 | Folder | Native dashboard | Offline design preview |
 | --- | --- | --- |
-| [2560x1080](./2560x1080/) | [Y.A.S.D 2560x1080.djson](./2560x1080/Y.A.S.D%202560x1080.djson) | [Open preview](./2560x1080/preview.html) |
-| [1920x1080](./1920x1080/) | [Y.A.S.D 1920x1080.djson](./1920x1080/Y.A.S.D%201920x1080.djson) | [Open preview](./1920x1080/preview.html) |
+| [2560x1080](./2560x1080/) | [Y.A.S.D 2560x1080.djson](./2560x1080/Y.A.S.D%202560x1080.djson) | [Open preview](https://Aleliz1.github.io/YetAnotherSimDash/2560x1080/preview.html) |
+| [1920x1080](./1920x1080/) | [Y.A.S.D 1920x1080.djson](./1920x1080/Y.A.S.D%201920x1080.djson) | [Open preview](https://Aleliz1.github.io/YetAnotherSimDash/1920x1080/preview.html) |
 
 Both versions use the full native resolution; the ultrawide version expands
 the panels rather than stretching the Full HD dashboard. Segoe UI is supplied
