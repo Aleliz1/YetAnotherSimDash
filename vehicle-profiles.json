@@ -1,7 +1,0 @@
-{
-  "defaults": {
-    "race": { "speedKmh": 360, "rpmFallback": 9000 },
-    "rally": { "speedKmh": 240, "rpmFallback": 8000 }
-  },
-  "cars": []
-}
