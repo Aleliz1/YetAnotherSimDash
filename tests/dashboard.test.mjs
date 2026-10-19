@@ -2,10 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createDashboard, mediaActions } from '../tools/generate.mjs';
-import { formula, helpers, profiles, validateProfiles, boostChannels } from '../tools/telemetry.mjs';
-import { standbyImages, standbyResources } from '../tools/standby.mjs';
+import { formula, helpers } from '../tools/telemetry.mjs';
+import { dashboardImages, gaugeHubImage, shiftLightImages, standbyImages, standbyResources } from '../tools/standby.mjs';
 import { inflateSync } from 'node:zlib';
-import { detailPages, detailFields } from '../tools/details.mjs';
+import { detailFields } from '../tools/details.mjs';
 
 function evaluate(expression, props = {}) {
   return new Function('$prop', formula(expression).Expression)(key => props[key] ?? null);
@@ -34,7 +34,7 @@ test('lean formulas preserve full-helper behavior and cut embedded source by at 
   const FixedDate = class extends Date { constructor() { super(12345); } };
   for (const expression of expressions) {
     const body = expression.slice(expression.lastIndexOf('\n') + 1);
-    const full = 'var gaugeProfiles = ' + JSON.stringify(profiles) + ';\n' + helpers + '\n' + body;
+    const full = helpers + '\n' + body;
     originalBytes += full.length;
     optimizedBytes += expression.length;
     for (const game of ['AssettoCorsa', 'AssettoCorsaRally', 'Automobilista2', 'LeMansUltimate', 'Unknown']) {
@@ -61,6 +61,8 @@ test('all requested games and common game IDs route to exactly one driving mode'
   const cases = {
     AssettoCorsa: 'race', 'Assetto Corsa': 'race', AC: 'race',
     AssettoCorsaRally: 'rally', ACRally: 'rally', 'Assetto Corsa Rally': 'rally',
+    RichardBurnsRally: 'rally', 'Richard Burns Rally': 'rally', RBR: 'rally', RBRRSF: 'rally',
+    RichardBurnsRallyRSF: 'rally', RallySimFansRBR: 'rally',
     Automobilista2: 'race', 'Automobilista 2': 'race', AMS2: 'race',
     LeMansUltimate: 'race', 'Le Mans Ultimate': 'race', LMU: 'race',
     ETS2: 'unsupported', EuroTruckSimulator2: 'unsupported',
@@ -68,6 +70,9 @@ test('all requested games and common game IDs route to exactly one driving mode'
   };
   for (const [game, mode] of Object.entries(cases)) {
     assert.equal(evaluate('return mode();', props(game)), mode, game);
+    if (/^(RichardBurnsRally|Richard Burns Rally|RBR|RBRRSF|RichardBurnsRallyRSF|RallySimFansRBR)$/.test(game)) {
+      assert.equal(evaluate('return gameName();', props(game)), 'RICHARD BURNS RALLY', game);
+    }
     const dashboard = createDashboard(1920);
     const visibleLayouts = dashboard.Screens[0].Items.filter(item =>
       /layout$/.test(item.Name) && new Function('$prop', 'root', item.Bindings.Visible.Formula.Expression)(key => props(game)[key] ?? null, {}));
@@ -104,31 +109,42 @@ test('welcome fades once on supported-game transitions, rearms on exit, and neve
 test('original ribbons are transparent PNGs in a deterministic named-resource ZIP', () => {
   const archive = standbyResources();
   let offset = 0;
-  for (const image of standbyImages) {
+  for (const image of dashboardImages) {
     assert.equal(archive.readUInt32LE(offset), 0x04034b50);
     const size = archive.readUInt32LE(offset + 18), nameLength = archive.readUInt16LE(offset + 26);
     assert.equal(archive.subarray(offset + 30, offset + 30 + nameLength).toString(), image.name + '.png');
     const png = archive.subarray(offset + 30 + nameLength, offset + 30 + nameLength + size);
     assert.deepEqual(png, image.bytes);
     assert.equal(png.subarray(1, 4).toString(), 'PNG');
-    assert.equal(png.readUInt32BE(16), 1024);
-    assert.equal(png.readUInt32BE(20), 256);
+    assert.equal(png.readUInt32BE(16), image.metadata.Width);
+    assert.equal(png.readUInt32BE(20), image.metadata.Height);
     assert.equal(png[25], 6, 'RGBA artwork');
+    const width = image.metadata.Width, height = image.metadata.Height;
     const raw = inflateSync(png.subarray(41, 41 + png.readUInt32BE(33)));
-    assert.equal(raw.length, (1024 * 4 + 1) * 256);
+    assert.equal(raw.length, (width * 4 + 1) * height);
     assert.equal(raw[4], 0, 'Artwork has transparent edges');
-    assert.ok(raw.some((v, i) => i % 4097 > 0 && (i % 4097 - 1) % 4 === 3 && v > 100), 'Ribbon is visible');
+    if (standbyImages.includes(image)) {
+      assert.equal(width, 1024);
+      assert.equal(height, 256);
+      assert.ok(raw.some((value, index) => index % (width * 4 + 1) > 0 &&
+        (index % (width * 4 + 1) - 1) % 4 === 3 && value > 100), 'Ribbon is visible');
+    } else {
+      assert.equal(width, 64);
+      const centerAlpha = raw[Math.floor(height / 2) * (width * 4 + 1) + 1 + Math.floor(width / 2) * 4 + 3];
+      assert.ok(centerAlpha > 0, 'Circular LED has an opaque center');
+    }
     offset += 30 + nameLength + size;
   }
   assert.equal(archive.readUInt32LE(offset), 0x02014b50);
   assert.equal(archive.readUInt32LE(archive.length - 22), 0x06054b50);
-  assert.equal(archive.readUInt16LE(archive.length - 12), 2);
+  assert.equal(archive.readUInt16LE(archive.length - 12), dashboardImages.length);
   assert.deepEqual(archive, standbyResources());
   for (const width of [1920, 2560]) {
     const items = flatten(createDashboard(width).Screens[0].Items);
-    for (const image of items.filter(i => i.$type.includes('.ImageItem,'))) {
+    for (const [index, image] of items.filter(i => i.Name.startsWith('Standby ribbon ')).entries()) {
       assert.ok(standbyImages.some(resource => resource.name === image.Image));
       assert.equal(image.MinimumRefreshIntervalMS, 50);
+      assert.match(image.Bindings.Top.Formula.Expression, new RegExp(`/ ${2800 + index * 800}`));
       assert.equal(image.AutoSize, false);
       const root = {};
       const topAt = (active, time) => new Function('$prop', 'root', 'Date', image.Bindings.Top.Formula.Expression)(
@@ -140,42 +156,7 @@ test('original ribbons are transparent PNGs in a deterministic named-resource ZI
     }
     const idle = items.find(i => i.Name === 'Standby layout');
     assert.equal(createDashboard(width).Screens[0].Items.at(-1).Name, idle.Name, 'Welcome draws over the driving layout');
-    const standby = idle.Childrens;
-    assert.ok(!standby.some(i => ['Standby brand', 'Standby eyebrow'].includes(i.Name)));
-    const heading = standby.find(i => i.Name === 'Standby heading');
-    assert.equal(heading.Left, 0);
-    assert.equal(heading.Width, width);
-    assert.equal(heading.Top + heading.Height / 2, 540);
-    assert.equal(heading.HorizontalAlignment, 1);
-    for (const [index, ribbon] of standby.filter(i => i.Name.startsWith('Standby ribbon')).entries()) {
-      const expression = ribbon.Bindings.Top.Formula.Expression;
-      assert.ok(expression.includes(`/ ${5200 + index * 1400} + ${index * 2}`));
-    }
     for (const child of idle.Childrens) assert.ok(child.Bindings.Opacity);
-  }
-});
-
-test('header is unbranded, live status sits under the flag, and panels use the freed space', () => {
-  for (const width of [1920, 2560]) {
-    const dashboard = createDashboard(width), items = dashboard.Screens[0].Items;
-    const entries = flatten(items);
-    for (const name of ['Top accent', 'Brand', 'Edition', 'Footer']) {
-      assert.ok(!entries.some(entry => entry.Name === name), `${name} is removed`);
-    }
-    const driving = entries.find(entry => entry.Name === 'Live driving');
-    const flag = driving.Childrens.find(entry => entry.Name === 'Track flag');
-    const status = driving.Childrens.find(entry => entry.Name === 'Status');
-    assert.ok(status);
-    assert.equal(status.Left, flag.Left);
-    assert.equal(status.Width, flag.Width);
-    assert.ok(status.Top >= flag.Top + flag.Height);
-    assert.equal(items.find(entry => entry.Name === 'Status'), undefined);
-    assert.equal(items.find(entry => entry.Name === 'Driving panel').Top, 158);
-    assert.equal(items.find(entry => entry.Name === 'Driving panel').Height, 910);
-    const music = items.find(entry => entry.Name === 'Music panel');
-    assert.equal(music.Left + music.Width, width - 32);
-    assert.equal(music.Top, 16);
-    assert.equal(entries.find(entry => entry.Name === 'Music artist').Text, 'DEMO ARTIST');
   }
 });
 
@@ -201,7 +182,7 @@ test('panel backgrounds enter after welcome without hiding live telemetry and re
     const fresh = new Function('$prop', 'root', panel.Bindings.Opacity.Formula.Expression)(key => props()[key] ?? null, {});
     assert.equal(fresh, 100);
     for (const name of ['Driving panel', 'Timing panel', 'Map panel', 'Tyre summary panel',
-      'Rally timing panel', 'Rally vehicle panel', 'Music panel']) {
+      'Rally timing panel', 'Rally stage panel', 'Music panel']) {
       const background = dashboard.Screens[0].Items.find(i => i.Name === name);
       assert.ok(background, `${name} clock is always evaluated`);
       assert.equal(background.MinimumRefreshIntervalMS, 50);
@@ -265,8 +246,140 @@ test('redline rim intensity uses adaptive limits at exact 90/95 percent threshol
   })), '#FF303030');
   for (const width of [1920, 2560]) {
     const entries = flatten(createDashboard(width).Screens[0].Items);
-    assert.match(entries.find(i => i.Name === 'RPM dial').Bindings.DialStrokeColor.Formula.Expression, /return redlineAccentColor\(\)/);
+    const rpm = entries.find(i => i.Name === 'RPM dial');
+    assert.match(rpm.Bindings.DialStrokeColor.Formula.Expression, /return rpmBezelColor\(\)/);
+    assert.equal(rpm.MajorTickColor, '#FFEBCBB4');
+    assert.equal(rpm.ScaleLabelStyle.LabelColor, '#FFEBCBB4');
+    assert.equal(rpm.NeedleColor, '#FFFF7748');
+    assert.equal(rpm.NeedleThickness, 3);
+    assert.equal(rpm.CapRadius, 12);
+    for (const name of ['Fuel dial', 'Oil temperature dial', 'Coolant temperature dial']) {
+      const dial = entries.find(i => i.Name === name);
+      assert.equal(dial.NeedleColor, rpm.NeedleColor, `${name} needle color matches RPM`);
+      assert.equal(dial.NeedleThickness, rpm.NeedleThickness, `${name} needle thickness matches RPM`);
+      assert.ok(Math.abs(dial.CapRadius / dial.OuterRadius - rpm.CapRadius / rpm.OuterRadius) < 0.001,
+        `${name} hub scales with RPM`);
+      assert.ok(Math.abs(dial.NeedleLength / dial.OuterRadius - rpm.NeedleLength / rpm.OuterRadius) < 0.001,
+        `${name} needle proportion matches RPM`);
+    }
+    const hub = entries.find(i => i.Name === 'RPM center hub');
+    assert.equal(hub.Image, gaugeHubImage.name);
+    assert.match(hub.$type, /\.ImageItem,/);
+    assert.equal(hub.Left + hub.Width / 2, rpm.Left + rpm.Width / 2);
+    assert.equal(hub.Top + hub.Height / 2, rpm.Top + rpm.Height / 2);
+    assert.equal(entries.some(item => item.Name.startsWith('RPM shift light ')), false);
+    const diffuser = entries.find(item => item.Name === 'RPM bezel diffuser glow');
+    assert.ok(entries.indexOf(diffuser) < entries.indexOf(rpm), 'Glow sits behind the gauge face');
+    assert.deepEqual([diffuser.Left, diffuser.Top, diffuser.Width, diffuser.Height],
+      [rpm.Left, rpm.Top, rpm.Width, rpm.Height]);
+    assert.equal(diffuser.ShowNeedle, false);
+    assert.equal(diffuser.DialBackgroundColor, '#00000000');
+    assert.equal(diffuser.OuterRadius, rpm.OuterRadius + 2);
+    assert.equal(diffuser.OuterStrokeThickness, 12);
+    assert.equal(rpm.OuterStrokeThickness, 5);
+    assert.ok(diffuser.OuterRadius + diffuser.OuterStrokeThickness / 2 <= diffuser.Width / 2);
     assert.match(entries.find(i => i.Name === 'Gear').Bindings.TextColor.Formula.Expression, /return gearHighlightColor\(\)/);
+  }
+});
+
+test('RPM diffuser uses the actual rev limit independently of rounded dial scales', () => {
+  const at = (limit, rpm, running = true) => evaluate('return rpmDiffuserColor();', props('AC', {
+    'DataCorePlugin.GameData.MaxRpm': limit, MaxRpm: limit,
+    'DataCorePlugin.GameData.Rpms': rpm, 'DataCorePlugin.GameRunning': running,
+  }));
+  for (const ratio of [0, 0.25, 0.7, 0.85, 0.9, 0.95, 1, 1.1]) {
+    const expected = at(8000, 8000 * ratio);
+    for (const limit of [2750, 8500, 15500, 16000]) {
+      assert.equal(at(limit, limit * ratio), expected);
+      if (ratio >= 0.95) assert.equal(expected, '#FFFF3B24');
+    }
+  }
+  assert.equal(at(8000, 5600), '#FFFFB02E');
+  for (const invalid of [null, '', true, 'bad', -1]) {
+    assert.equal(at(8000, invalid), '#FF303030');
+    assert.equal(at(invalid, 7000), '#FF303030');
+  }
+  assert.equal(at(8000, 8000, false), '#FF303030');
+  assert.equal(at(16000, 13500), at(8000, 6750));
+});
+
+test('RPM bezel and glow flash together at 95 percent of the live limit', () => {
+  for (const width of [1920, 2560]) {
+    const items = flatten(createDashboard(width).Screens[0].Items);
+    for (const name of ['RPM dial', 'RPM bezel diffuser glow']) {
+      const expression = items.find(item => item.Name === name).Bindings.DialStrokeColor.Formula.Expression;
+      const expected = color => name === 'RPM dial' ? color : '#40' + color.slice(3);
+      const at = (limit, rpm, time, running = true) => {
+        const input = props('AC', {
+          'DataCorePlugin.GameData.MaxRpm': limit, MaxRpm: limit,
+          'DataCorePlugin.GameData.Rpms': rpm, 'DataCorePlugin.GameRunning': running,
+        });
+        const FixedDate = class extends Date { constructor() { super(time); } };
+        return new Function('$prop', 'Date', expression)(key => input[key] ?? null, FixedDate);
+      };
+      for (const limit of [2750, 8000, 15500, 16000]) {
+        for (const rpm of [limit * 0.95, limit, limit * 1.1]) {
+          for (const time of [0, 249, 500]) assert.equal(at(limit, rpm, time), expected('#FFFF3B24'));
+          for (const time of [250, 499, 750]) assert.equal(at(limit, rpm, time), expected('#FF50302B'));
+        }
+        assert.equal(at(limit, limit * 0.95 - 1, 0), at(limit, limit * 0.95 - 1, 250));
+        assert.equal(at(limit, limit, 250, false), expected('#FF303030'));
+        for (const invalid of [null, '', true, 'bad', -1]) {
+          assert.equal(at(limit, invalid, 250), expected('#FF303030'));
+          assert.equal(at(invalid, limit, 250), expected('#FF303030'));
+        }
+      }
+    }
+  }
+});
+
+test('KERS and DRS use independent direct telemetry and hide when unavailable', () => {
+  for (const prefix of ['DataCorePlugin.GameData.', 'DataCorePlugin.GameData.NewData.', '']) {
+    const input = props('AC', { [prefix + 'KERSPercent']: 65,
+      [prefix + 'DRSAvailable']: true, [prefix + 'DRSEnabled']: false });
+    assert.equal(evaluate('return kersPercent();', input), 65);
+    assert.equal(evaluate('return drsState();', input), 'READY');
+  }
+  for (const game of ['AC', 'AMS2', 'LMU']) {
+    for (const value of [0, 1, 65, 100]) {
+      assert.equal(evaluate('return kersPercent();', props(game, { KERSPercent: value })), value);
+    }
+    for (const value of [null, '', true, -1, 101, 'bad']) {
+      assert.equal(evaluate('return kersPercent();', props(game, { KERSPercent: value })), null);
+    }
+    assert.equal(evaluate('return drsState();', props(game)), null);
+    if (game === 'LMU') {
+      assert.equal(evaluate('return drsState();', props(game, { DRSAvailable: true, DRSEnabled: true })), null);
+      continue;
+    }
+    assert.equal(evaluate('return drsState();', props(game, { DRSAvailable: false, DRSEnabled: false })), 'OFF');
+    assert.equal(evaluate('return drsState();', props(game, { DRSAvailable: true })), 'READY');
+    assert.equal(evaluate('return drsState();', props(game, { DRSAvailable: true, DRSEnabled: true })), 'ACTIVE');
+  }
+  for (const game of ['RichardBurnsRally', 'AssettoCorsaRally', 'unsupported']) {
+    const input = props(game, { KERSPercent: 80, DRSAvailable: true, DRSEnabled: true });
+    assert.equal(evaluate('return kersPercent();', input), null);
+    assert.equal(evaluate('return drsState();', input), null);
+  }
+  const disconnected = props('AC', { KERSPercent: 80, DRSEnabled: true, 'DataCorePlugin.GameRunning': false });
+  assert.equal(evaluate('return kersPercent();', disconnected), null);
+  assert.equal(evaluate('return drsState();', disconnected), null);
+  for (const width of [1920, 2560]) {
+    const items = flatten(createDashboard(width).Screens[0].Items);
+    const rpm = items.find(item => item.Name === 'RPM dial');
+    const limit = items.find(item => item.Name === 'Cluster scale source');
+    for (const name of ['KERS indicator', 'DRS indicator']) {
+      const indicator = items.find(item => item.Name === name);
+      const visible = input => new Function('$prop', indicator.Bindings.Visible.Formula.Expression)(key => input[key] ?? null);
+      assert.equal(visible(props('AC')), false);
+      assert.equal(visible(props('AC', { KERSPercent: 0 })), name === 'KERS indicator');
+      assert.equal(visible(props('AC', { DRSEnabled: false })), name === 'DRS indicator');
+      for (const child of indicator.Childrens) {
+        assert.ok(child.Top >= rpm.Top + rpm.Height + 12);
+        assert.ok(child.Top + child.Height <= limit.Top);
+        assert.ok(child.Left >= rpm.Left && child.Left + child.Width <= rpm.Left + rpm.Width);
+      }
+    }
   }
 });
 
@@ -276,9 +389,9 @@ test('night palette is warm across native layouts, dynamic colours and original 
     const dashboard = createDashboard(width), items = flatten(dashboard.Screens[0].Items);
     assert.equal(dashboard.BackgroundColor, '#FF050505');
     assert.ok(!oldColors.test(JSON.stringify(dashboard)), 'No old cool palette remains in generated native output');
-    for (const name of ['Speed dial', 'RPM dial', 'Fuel dial']) {
+    for (const name of ['RPM dial', 'Fuel dial']) {
       const dial = items.find(i => i.Name === name);
-      assert.match(dial.MajorTickColor, /^#(?:FFE2DFD5|FFFFB02E)$/);
+      assert.match(dial.MajorTickColor, /^#(?:FFE2DFD5|FFFFB02E|FFEBCBB4)$/);
     }
     assert.equal(items.find(i => i.Name === 'Gear').TextColor, '#FFFFB02E');
     assert.equal(items.find(i => i.Name === 'Map panel').BackgroundColor, '#FF101010');
@@ -303,6 +416,8 @@ test('track flags show reported states without inventing green and limiter disti
     assert.equal(evaluate('return trackFlagText();', props(game, { Flag_Name: 'Red' })), 'FLAG / RED');
     assert.equal(evaluate('return trackFlagText();', props(game, { Flag_Name: 'Red', Flag_Yellow: 1 })), 'FLAG / RED +1');
     assert.equal(evaluate('return trackFlagText();', props(game, { Flag_Yellow: 1, Flag_Blue: 1 })), 'FLAG / YELLOW +1');
+    assert.equal(evaluate("return trackFlagActive('YELLOW');", props(game, { Flag_Yellow: 1 })), true);
+    assert.equal(evaluate("return trackFlagActive('BLUE');", props(game, { Flag_Yellow: 1 })), false);
     for (const bad of [null, false, 0, '', 'bad', 2]) {
       assert.equal(evaluate('return trackFlagText();', props(game, { Flag_Green: bad })), 'FLAG / --');
     }
@@ -318,99 +433,92 @@ test('track flags show reported states without inventing green and limiter disti
   for (const width of [1920, 2560]) {
     const items = flatten(createDashboard(width).Screens[0].Items);
     const limiter = items.find(i => i.Name === 'Pit limiter'), rpm = items.find(i => i.Name === 'RPM dial');
+    assert.equal(limiter.Text, 'PIT');
+    const pitLedFrame = items.find(i => i.Name === 'Pit limiter LED frame');
+    const pitLedOff = items.find(i => i.Name === 'Pit limiter LED off');
+    const pitLedOn = items.find(i => i.Name === 'Pit limiter LED on');
+    assert.match(pitLedFrame.$type, /\.RectangleItem,/);
+    assert.match(pitLedOff.$type, /\.RectangleItem,/);
+    assert.match(pitLedOn.$type, /\.RectangleItem,/);
+    assert.equal(pitLedFrame.Width, 48);
+    assert.equal(pitLedFrame.Height, 48);
+    assert.equal(pitLedOff.BackgroundColor, '#FF50321C');
+    assert.equal(pitLedOn.BackgroundColor, '#FFFF8A1C');
+    assert.deepEqual([pitLedFrame.RadiusTopLeft, pitLedFrame.RadiusTopRight,
+      pitLedFrame.RadiusBottomRight, pitLedFrame.RadiusBottomLeft], [6, 6, 6, 6]);
+    for (const led of [pitLedOff, pitLedOn]) {
+      assert.deepEqual([led.RadiusTopLeft, led.RadiusTopRight, led.RadiusBottomRight, led.RadiusBottomLeft], [4, 4, 4, 4]);
+    }
+    const ledVisible = (item, state) => new Function('$prop', item.Bindings.Visible.Formula.Expression)(
+      key => props('AC', state === undefined ? {} : { PitLimiterOn: state })[key] ?? null);
+    assert.equal(ledVisible(pitLedFrame, true), true);
+    assert.equal(ledVisible(pitLedFrame, false), true);
+    assert.equal(ledVisible(pitLedFrame), false);
+    assert.equal(ledVisible(pitLedOff, true), false);
+    assert.equal(ledVisible(pitLedOn, true), true);
+    assert.equal(ledVisible(pitLedOff, false), true);
+    assert.equal(ledVisible(pitLedOn, false), false);
+    assert.equal(ledVisible(pitLedOff), false);
+    assert.equal(ledVisible(pitLedOn), false);
+    for (const led of [pitLedFrame, pitLedOff, pitLedOn]) {
+      assert.ok(led.Left >= rpm.Left && led.Left + led.Width <= rpm.Left + rpm.Width);
+      assert.ok(led.Top >= rpm.Top && led.Top + led.Height <= rpm.Top + rpm.Height);
+    }
     const cx = rpm.Left + rpm.Width / 2, cy = rpm.Top + rpm.Height / 2;
     for (const x of [limiter.Left, limiter.Left + limiter.Width]) {
       for (const y of [limiter.Top, limiter.Top + limiter.Height]) assert.ok(Math.hypot(x - cx, y - cy) < rpm.OuterRadius);
     }
-    const flag = items.find(i => i.Name === 'Track flag'), heading = items.find(i => i.Name === 'Drive mode');
-    assert.ok(heading.Left + heading.Width <= flag.Left);
-    assert.equal(flag.MinimumRefreshIntervalMS, 100);
+    const flagLayer = items.find(i => i.Name === 'Track flag indicators'), heading = items.find(i => i.Name === 'Drive mode');
+    const drivingPanel = items.find(i => i.Name === 'Driving panel');
+    const flagTiles = items.filter(i => /^Track flag (BLACK|ORANGE|CHECKERED|YELLOW|BLUE|WHITE|GREEN|RED)$/.test(i.Name));
+    assert.equal(flagTiles.length, 8);
+    assert.equal(items.some(i => i.Name === 'Track flag'), false, 'Text flag label is replaced by visual flags');
+    assert.equal(flagLayer.Childrens.length, 18, 'All flag tiles and checkered squares are present');
+    const activeFlagNames = flags => flagTiles.filter(tile => {
+      const visible = new Function('$prop', tile.Bindings.Visible.Formula.Expression);
+      return visible(key => props('AC', flags)[key] ?? null);
+    }).map(tile => tile.Name).sort();
+    assert.deepEqual(activeFlagNames({ Flag_Yellow: true }), ['Track flag YELLOW']);
+    assert.deepEqual(activeFlagNames({ Flag_Yellow: true, Flag_Blue: true }), ['Track flag BLUE', 'Track flag YELLOW']);
+    assert.deepEqual(activeFlagNames({}), [], 'Missing flag data shows no invented flag');
+    for (const tile of flagTiles) {
+      assert.ok(tile.Left >= heading.Left + heading.Width);
+      assert.ok(tile.Left + tile.Width <= drivingPanel.Left + drivingPanel.Width - 24);
+      assert.equal(tile.Width, 36);
+      assert.equal(tile.Height, 30);
+      assert.equal(tile.MinimumRefreshIntervalMS, 100);
+      assert.ok(tile.Bindings.Visible);
+    }
+    for (const name of ['Class divider', 'Leaderboard divider']) {
+      assert.equal(items.find(i => i.Name === name).BackgroundColor, '#FF68523A');
+    }
+    assert.equal(items.find(i => i.Name === 'Ahead caption').FontSize, 13);
+    assert.equal(items.find(i => i.Name === 'Ahead caption').TextColor, '#FFC5B39A');
     assert.equal(limiter.MinimumRefreshIntervalMS, 100);
   }
 });
 
-test('auxiliary temperatures and mapped battery values preserve unavailable data and charge zero', () => {
+test('auxiliary temperatures use only normalized SimHub readings', () => {
   for (const key of ['OilTemperature', 'WaterTemperature']) {
     for (const [value, expected] of [[95, 95], [0, null], [-1, null], [null, null], [true, null], ['', null]]) {
       assert.equal(evaluate(`return engineTemperature('${key}');`, props('AC', { [key]: value })), expected);
     }
   }
-  const config = structuredClone(profiles);
-  config.cars.push({ game: 'AC', carId: 'test', batteryVoltageProperty: 'Demo.Voltage',
-    batteryChargePercentProperty: 'Demo.SOC' });
-  validateProfiles(config);
-  for (const [key, percent] of [['batteryVoltageProperty', false], ['batteryChargePercentProperty', true]]) {
-    const run = (v, extra = {}) => new Function('$prop', formula(`return batteryReading('${key}', ${percent});`, config).Expression)(
-      name => props('AC', { CarId: 'test', 'Demo.Voltage': v, 'Demo.SOC': v, ...extra })[name] ?? null);
-    assert.equal(run(14), 14);
-    assert.equal(run(0), percent ? 0 : null);
-    for (const value of [null, '', true, -1, 'bad']) assert.equal(run(value), null);
-    if (percent) assert.equal(run(101), null);
-    assert.equal(run(14, { CarId: 'different' }), null);
-    assert.equal(run(14, { 'DataCorePlugin.GameRunning': false }), null);
-    const invalid = structuredClone(config);
-    invalid.cars[0][key] = '';
-    assert.throws(() => validateProfiles(invalid), new RegExp(key));
-  }
   for (const width of [1920, 2560]) {
     const items = flatten(createDashboard(width).Screens[0].Items);
     for (const name of ['Oil', 'Coolant']) {
       const dial = items.find(i => i.Name === `${name} temperature dial`);
-      assert.equal(dial.Width, 100);
+      assert.equal(dial.Width, 112);
       assert.equal(new Function('$prop', dial.Bindings.ShowNeedle.Formula.Expression)(() => null), false);
     }
   }
 });
 
-test('circuit boost channels use independent explicit units and never substitute battery SOC', () => {
-  const config = structuredClone(profiles);
-  config.cars.push({ game: 'AC', carId: 'boost-car',
-    ...Object.fromEntries(boostChannels.map(([key]) => [key, `Demo.${key}`])) });
-  validateProfiles(config);
-  for (const [key, , kind] of boostChannels) {
-    const run = (value, extra = {}) => new Function('$prop', formula(`return boostReading('${key}', '${kind}');`, config).Expression)(
-      prop => props('AC', { CarId: 'boost-car', [`Demo.${key}`]: value, ...extra })[prop] ?? null);
-    assert.equal(run(null), '--');
-    assert.equal(run(''), '--');
-    assert.equal(run(1, { CarId: 'unmapped' }), '--');
-    assert.equal(run(1, { 'DataCorePlugin.GameRunning': false }), '--');
-    if (kind === 'switch') {
-      assert.equal(run(true), 'ON');
-      assert.equal(run(false), 'OFF');
-      assert.equal(run(0), 'OFF');
-      assert.equal(run(2), '--');
-    } else if (kind === 'mode') {
-      assert.equal(run('BALANCED'), 'BALANCED');
-      assert.equal(run(0), '0');
-      assert.equal(run(true), '--');
-    } else {
-      assert.equal(run(true), '--');
-      assert.equal(run(-1), '--');
-      assert.equal(run(0), kind === 'count' ? '0' : kind === 'percent' ? '0.0%' : kind === 'power' ? '0.0 kW' : '0.0 MJ');
-      assert.equal(run(5), kind === 'count' ? '5' : kind === 'percent' ? '5.0%' : kind === 'power' ? '5.0 kW' : '5.0 MJ');
-      if (kind === 'percent') assert.equal(run(101), '--');
-      if (kind === 'count') assert.equal(run(1.5), '--');
-    }
-    const invalid = structuredClone(config);
-    invalid.cars[0][key] = ' ';
-    assert.throws(() => validateProfiles(invalid), new RegExp(key));
-  }
+test('optional boost placeholders are not generated without direct SimHub channels', () => {
   for (const width of [1920, 2560]) {
     const items = flatten(createDashboard(width).Screens[0].Items);
-    const driving = items.find(i => i.Name === 'Live driving');
-    const section = driving.Childrens.find(i => i.Name === 'Circuit boost');
-    const panel = items.find(i => i.Name === 'Driving panel'), music = items.find(i => i.Name === 'Music panel');
-    assert.equal(section.Childrens.filter(i => !i.Name.endsWith(' label')).length, 7);
-    assert.ok(music.Top + music.Height < panel.Top, 'AC music is in the header');
-    for (const entry of section.Childrens) {
-      assert.ok(entry.Left >= panel.Left && entry.Left + entry.Width <= panel.Left + panel.Width);
-      assert.ok(entry.Top > items.find(i => i.Name === 'Cluster scale source').Top + 24);
-      assert.ok(entry.Top + entry.Height <= panel.Top + panel.Height);
-    }
-    for (const game of ['AC', 'AMS2', 'LMU', 'ACRally']) {
-      assert.equal(new Function('$prop', section.Bindings.Visible.Formula.Expression)(
-        key => props(game)[key] ?? null), game !== 'ACRally');
-    }
+    assert.equal(items.some(i => i.Name === 'Circuit boost'), false);
+    assert.equal(items.some(i => i.Name.startsWith('Boost ')), false);
   }
 });
 
@@ -422,6 +530,9 @@ test('header media and fixed panel structure are consistent across games and res
     assert.ok(car.Left + car.Width < music.Left);
     assert.ok(music.Left + music.Width < status.Left);
     assert.ok(music.Top + music.Height < get('Header divider').Top);
+    assert.equal(get('Header divider').Top, 84);
+    assert.equal(get('Timing panel').Top, get('Header divider').Top + 20);
+    assert.ok(get('Game name').Left + get('Game name').Width < car.Left, 'Game and car identity share one row');
     for (const item of items.filter(i => i.Name.startsWith('Music ') && i.Name !== 'Music controls')) {
       assert.ok(item.Left >= music.Left && item.Left + item.Width <= music.Left + music.Width, item.Name);
       assert.ok(item.Top >= music.Top && item.Top + item.Height <= music.Top + music.Height, item.Name);
@@ -430,84 +541,97 @@ test('header media and fixed panel structure are consistent across games and res
     assert.equal(circuit.Left, rally.Left);
     assert.equal(circuit.Top, rally.Top);
     assert.equal(circuit.Height, rally.Height);
-    assert.equal(driving.Top + driving.Height, circuit.Top + circuit.Height);
-    assert.equal(get('Map panel').Left, get('Rally vehicle panel').Left);
-    assert.equal(get('Map panel').Height, get('Rally vehicle panel').Height);
-    assert.ok(get('Tyre summary panel').Top > get('Map panel').Top + get('Map panel').Height);
+    const tyres = get('Tyre summary panel');
+    assert.equal(tyres.Left, circuit.Left, 'Tyres sit below session timing in the left column');
+    assert.equal(tyres.Top, circuit.Top + circuit.Height);
+    assert.notEqual(get('Current lap time').Left, get('Last lap time').Left, 'Timing values use two columns');
+    const stagePanel = get('Rally stage panel');
+    assert.equal(get('Map panel').Left, stagePanel.Left);
+    assert.equal(get('Map panel').Height, stagePanel.Height);
+    assert.equal(get('Map panel').Top, circuit.Top);
+    assert.equal(get('Map panel').Top + get('Map panel').Height, driving.Top + driving.Height);
+    const stageMap = get('Rally stage map'), mapStatus = get('Rally map status');
+    assert.match(stageMap.$type, /\.GeneratedStaticMapItem,/);
+    assert.equal(stageMap.Bindings.Visible.Formula.Expression.includes('coordinatesAvailable()'), true);
+    assert.equal(mapStatus.Bindings.Visible.Formula.Expression.includes('!coordinatesAvailable()'), true);
+    assert.equal(evaluate('return coordinatesAvailable();', props('RBR')), false);
+    assert.equal(evaluate('return coordinatesAvailable();', props('RBR', {
+      MapAllowed: true, CarCoordinates01: 0, CarCoordinates03: 0,
+    })), true);
+    for (const name of ['Rally stage map', 'Rally map status', 'Rally stage progress', 'Rally stage distance',
+      'Rally stage split', 'Rally damage', 'Rally transmission', 'Rally ABS', 'Rally TC']) {
+      const element = get(name);
+      assert.ok(element.Left >= stagePanel.Left && element.Left + element.Width <= stagePanel.Left + stagePanel.Width, name);
+      assert.ok(element.Top >= stagePanel.Top && element.Top + element.Height <= stagePanel.Top + stagePanel.Height, name);
+    }
+    for (const corner of ['FL', 'FR', 'RL', 'RR']) {
+      assert.equal(get(`Rally brake ${corner}`), undefined);
+      assert.ok(get(`Tyre ${corner} brake temperature`), `Tyre ${corner} brake temperature remains in tyre summary`);
+    }
+    assert.equal(get('Rally stage progress').FontSize, 27);
+    assert.equal(get('Rally stage distance').FontSize, 27);
+    assert.equal(get('Rally stage split').FontSize, 27);
+    assert.ok(items.find(i => i.Name === 'Strategy summary').Bindings.Visible);
+    for (const name of ['Rally info one', 'Rally info two', 'Rally info three', 'Rally vehicle title',
+      'Rally focus title', 'Rally focus note', 'Rally timing note', 'Rally water', 'Rally oil', 'Rally fuel']) {
+      assert.equal(get(name), undefined, name);
+    }
   }
 });
 
-test('detail mappings validate units, estimates and warning thresholds without guessing race rules', () => {
-  const config = structuredClone(profiles);
-  config.cars.push({ game: 'AC', carId: 'details', oilWarningC: 120, coolantWarningC: 100,
-    detailProperties: Object.fromEntries(detailFields.map(([key]) => [key, 'Demo.' + key])) });
-  validateProfiles(config);
-  const run = (expression, values = {}) => new Function('$prop', formula(expression, config).Expression)(
-    key => props('AC', { CarId: 'details', ...values })[key] ?? null);
+test('detail readings use direct SimHub data and preserve units without guessed warnings', () => {
+  const run = (expression, values = {}) => new Function('$prop', formula(expression).Expression)(
+    key => props('AC', values)[key] ?? null);
   for (const [key, , kind, normalized] of detailFields) {
     const expression = `return detailReading('${key}', '${kind}', ${normalized ? `'${normalized}'` : 'null'});`;
     assert.equal(run(expression), '--', key);
-    assert.equal(run(expression, { ['Demo.' + key]: true }), kind === 'switch' ? 'YES' : '--');
-    assert.equal(run(expression, { ['Demo.' + key]: false }), kind === 'switch' ? 'NO' : '--');
-    assert.equal(run(expression, { ['Demo.' + key]: '' }), '--');
-    assert.equal(run(expression, { ['Demo.' + key]: 5, 'DataCorePlugin.GameRunning': false }), '--');
+    assert.equal(run(expression, { [normalized || key]: true }), kind === 'switch' ? 'YES' : '--');
+    assert.equal(run(expression, { [normalized || key]: false }), kind === 'switch' ? 'NO' : '--');
+    assert.equal(run(expression, { [normalized || key]: '' }), '--');
+    assert.equal(run(expression, { [normalized || key]: 5, 'DataCorePlugin.GameRunning': false }), '--');
     const expected = kind === 'text' ? '--' : kind === 'switch' ? 'NO' : kind === 'pressure' ? '--' :
       kind === 'seconds' ? '0:00.000' : kind === 'count' ? '0' : kind === 'delta' ? '+0.000 s' :
       '0.0' + ({litres:' L',laps:' laps',speed:' km/h',temperature:' C',bar:' bar',energy:' MJ',percent:'%',distance:' km'}[kind] || '');
-    assert.equal(run(expression, { ['Demo.' + key]: 0 }), expected, key);
+    assert.equal(run(expression, { [normalized || key]: 0 }), expected, key);
   }
-  assert.equal(run("return detailReading('fuelLaps','laps');", { 'Demo.fuelPerLap': 3 }), 'EST 20.0 laps');
-  assert.equal(run("return detailReading('fuelLaps','laps');", { 'Demo.fuelPerLap': 0 }), '--');
-  assert.equal(run("return detailReading('fuelToAdd','litres');", { 'Demo.fuelToFinish': 70 }), 'EST 10.0 L');
-  assert.equal(run("return detailReading('fuelToAdd','litres');", { 'Demo.fuelToFinish': 50 }), 'EST 0.0 L');
-  assert.equal(run("return detailReading('fuelToFinish','litres');", { 'Demo.sessionSeconds': 3600, 'Demo.fuelPerLap': 3 }), '--');
-  assert.equal(run("return detailReading('stageSplitSeconds','delta');", { 'Demo.stageSplitSeconds': -1.25 }), '-1.250 s');
-  assert.equal(run("return detailReading('sessionSeconds','seconds');", { 'Demo.sessionSeconds': 3661.5 }), '61:01.500');
+  assert.equal(run("return detailReading('fuelLaps','laps');", { Fuel: 60, fuelPerLap: 3 }), 'EST 20.0 laps');
+  assert.equal(run("return detailReading('fuelLaps','laps');", { Fuel: 60, fuelPerLap: 0 }), '--');
+  assert.equal(run("return detailReading('fuelToAdd','litres');", { Fuel: 60, fuelToFinish: 70 }), 'EST 10.0 L');
+  assert.equal(run("return detailReading('fuelToAdd','litres');", { Fuel: 60, fuelToFinish: 50 }), 'EST 0.0 L');
+  assert.equal(run("return detailReading('fuelToFinish','litres');", { sessionSeconds: 3600, fuelPerLap: 3 }), '--');
+  assert.equal(run("return detailReading('stageSplitSeconds','delta');", { stageSplitSeconds: -1.25 }), '-1.250 s');
+  assert.equal(run("return detailReading('sessionSeconds','seconds');", { sessionSeconds: 3661.5 }), '61:01.500');
   assert.equal(run('return raceWarnings();'), 'WARNINGS / CHECK GAME');
   assert.equal(run('return raceWarnings();', { OilTemperature: 119.9, WaterTemperature: 99.9 }), 'WARNINGS / CHECK GAME');
-  assert.equal(run('return raceWarnings();', { OilTemperature: 120, WaterTemperature: 100 }), 'OIL TEMP / COOLANT TEMP');
-  assert.equal(run('return raceWarnings();', { IsInPitLane: true, 'Demo.pitLimitKmh': 160 }), 'WARNINGS / CHECK GAME');
-  assert.equal(run('return raceWarnings();', { IsInPitLane: true, 'Demo.pitLimitKmh': 159.9 }), 'PIT OVERSPEED');
-  assert.equal(run('return raceWarnings();', { 'Demo.penalties': 'NONE' }), 'WARNINGS / CHECK GAME');
-  assert.equal(run('return raceWarnings();', { 'Demo.penaltyActive': true, 'Demo.penalties': 'DRIVE THROUGH' }), 'PENALTY: DRIVE THROUGH');
-  for (const invalidMap of [null, [], { typo: 'X' }, { fuelLaps: '' }]) {
-    const invalid = structuredClone(config);
-    invalid.cars[0].detailProperties = invalidMap;
-    assert.throws(() => validateProfiles(invalid));
-  }
+  assert.equal(run('return raceWarnings();', { OilTemperature: 140, WaterTemperature: 120 }), 'WARNINGS / CHECK GAME');
+  assert.equal(run('return raceWarnings();', { IsInPitLane: true, pitLimitKmh: 160 }), 'WARNINGS / CHECK GAME');
+  assert.equal(run('return raceWarnings();', { IsInPitLane: true, pitLimitKmh: 159.9 }), 'PIT OVERSPEED');
+  assert.equal(run('return raceWarnings();', { penalties: 'NONE' }), 'WARNINGS / CHECK GAME');
+  assert.equal(run('return raceWarnings();', { penaltyActive: true, penalties: 'DRIVE THROUGH' }), 'PENALTY: DRIVE THROUGH');
 });
 
-test('four manually selectable pages retain fixed instruments, valid bounds and game routing', () => {
+test('dashboard has one overview screen and no page navigation button', () => {
   for (const width of [1920, 2560]) {
-    const dash = createDashboard(width), overview = flatten(dash.Screens[0].Items);
-    assert.deepEqual(dash.Screens.map(s => s.Name), ['MangoDash / Overview', ...detailPages.map(p => `MangoDash / ${p.name}`)]);
-    assert.equal(new Set(dash.Screens.map(s => s.ScreenId)).size, 4);
-    assert.equal(dash.Metadata.ScreenCount, 4);
-    for (const [index, screen] of dash.Screens.entries()) {
-      const items = flatten(screen.Items), names = new Set();
-      for (const item of items) {
-        assert.ok(!names.has(item.Name), `${screen.Name}: duplicate ${item.Name}`);
-        names.add(item.Name);
-        if (item.Childrens) continue;
-        assert.ok(item.Left >= 0 && item.Top >= 0 && item.Left + item.Width <= width && item.Top + item.Height <= 1080, item.Name);
-        if (item.Name.startsWith('Detail ') && !item.Name.startsWith('Detail navigation') && item.Name !== 'Detail next page') {
-          assert.ok(item.Top + item.Height < 178 + 606, item.Name);
+    const dash = createDashboard(width), screen = dash.Screens[0], items = flatten(screen.Items), names = new Set();
+    assert.deepEqual(dash.Screens.map(s => s.Name), ['Y.A.S.S / Overview']);
+    assert.equal(dash.Metadata.ScreenCount, 1);
+    assert.deepEqual(dash.Metadata.InGameScreensIndexs, [0]);
+    assert.deepEqual(dash.Metadata.IdleScreensIndexs, [0]);
+    assert.deepEqual(dash.Metadata.PitScreensIndexs, [0]);
+    assert.equal(items.some(item => item.Name.startsWith('Detail ')), false);
+    assert.equal(items.some(item => item.TriggerAction === 'GraphicalDashPlugin.NextScreen'), false);
+    const screenText = items.filter(item => item.IsTextItem).map(item => item.Text).join('\n');
+    assert.doesNotMatch(screenText, /ONE DASH\. FOUR SIMULATORS\.|LIVE VALUES ONLY - UNAVAILABLE DATA:/);
+    assert.ok(!items.some(item => item.Name === 'Footer'));
+    for (const item of items) {
+      assert.ok(!names.has(item.Name), `Duplicate item: ${item.Name}`);
+      names.add(item.Name);
+      if (item.Childrens) continue;
+      assert.ok(item.Left >= 0 && item.Top >= 0 && item.Left + item.Width <= width && item.Top + item.Height <= 1080, item.Name);
+      for (const binding of Object.values(item.Bindings || {})) {
+        for (const data of [{}, props('AC'), props('ACRally'), props('Unknown')]) {
+          assert.doesNotThrow(() => new Function('$prop','root',binding.Formula.Expression)(key => data[key] ?? null, {}), item.Name);
         }
-        for (const binding of Object.values(item.Bindings || {})) {
-          for (const data of [{}, props('AC'), props('ACRally'), props('Unknown')]) {
-            assert.doesNotThrow(() => new Function('$prop','root',binding.Formula.Expression)(key => data[key] ?? null, {}), item.Name);
-          }
-        }
-      }
-      for (const name of ['Gear','RPM dial','Speed dial','Pit limiter','Throttle bar','Warning summary']) {
-        assert.deepEqual(items.find(i=>i.Name===name), overview.find(i=>i.Name===name));
-      }
-      const next = items.find(i=>i.Name==='Detail next page');
-      assert.equal(next.TriggerAction, 'GraphicalDashPlugin.NextScreen');
-      if (index) {
-        assert.equal(items.filter(i=>i.Name.startsWith('Detail ') && !i.Name.endsWith(' label') && !i.Name.startsWith('Detail navigation') && !['Detail heading','Detail availability','Detail next page'].includes(i.Name)).length,
-          detailPages[index-1].fields.length);
-        assert.equal(items.some(i=>i.Name==='Track minimap'), false);
       }
     }
   }
@@ -530,7 +654,7 @@ test('music is enabled only for Assetto Corsa, while connected', () => {
     assert.equal(evaluate('return musicPage();', props(game)), true, game);
     assert.equal(evaluate('return musicPage();', props(game, { 'DataCorePlugin.GameRunning': false })), false, game);
   }
-  for (const game of ['AssettoCorsaRally', 'ACRally', 'Automobilista2', 'AMS2', 'LeMansUltimate', 'LMU', 'Unknown', 'ETS2', 'EuroTruckSimulator2', 'ATS', 'AmericanTruckSimulator']) {
+  for (const game of ['AssettoCorsaRally', 'ACRally', 'RichardBurnsRally', 'RBR', 'RBRRSF', 'Automobilista2', 'AMS2', 'LeMansUltimate', 'LMU', 'Unknown', 'ETS2', 'EuroTruckSimulator2', 'ATS', 'AmericanTruckSimulator']) {
     assert.equal(evaluate('return musicPage();', props(game)), false, game);
   }
 });
@@ -565,7 +689,7 @@ test('neutral, reverse, multi-digit and string gears are preserved', () => {
 
 test('car settings preserve independent levels, percentage bias and unavailable telemetry', () => {
   const channels = ['BrakeBias', 'ABSLevel', 'TCLevel', 'TractionControlCut', 'EngineMap'];
-  for (const game of ['AssettoCorsa', 'AssettoCorsaRally', 'Automobilista2', 'LeMansUltimate']) {
+  for (const game of ['AssettoCorsa', 'AssettoCorsaRally', 'RichardBurnsRally', 'Automobilista2', 'LeMansUltimate']) {
     for (const key of channels) {
       const run = value => evaluate(`return carSetting('${key}');`, props(game, { [`DataCorePlugin.GameData.${key}`]: value }));
       assert.equal(run(0), key === 'BrakeBias' ? '0.0%' : '0');
@@ -583,26 +707,16 @@ test('car settings preserve independent levels, percentage bias and unavailable 
   assert.equal(evaluate("return carSetting('BrakeBias');", props('AssettoCorsa', { BrakeBias: 0.5 })), '0.5%');
   assert.equal(evaluate("return carSetting('TCLevel');", props('AssettoCorsa', { TCLevel: 1.5 })), '--');
   assert.equal(evaluate("return carSetting('TractionControlCut');", props('AssettoCorsa', { TCLevel: 5, TCActive: 1 })), '--');
-  const config = structuredClone(profiles);
-  config.cars.push({ game: 'AssettoCorsa', carId: 'test-car', tcCutProperty: 'ExamplePlugin.CutLevel' });
-  validateProfiles(config);
-  const mapped = p => new Function('$prop', formula("return carSetting('TractionControlCut');", config).Expression)(key => p[key] ?? null);
-  const p = props('AssettoCorsa', { CarId: 'test-car', TractionControlCut: 9, 'ExamplePlugin.CutLevel': 0 });
-  assert.equal(mapped(p), '0');
-  assert.equal(mapped({ ...p, 'ExamplePlugin.CutLevel': null }), '--');
-  assert.equal(mapped({ ...p, CarId: 'another-car' }), '9');
-  assert.equal(mapped({ ...p, 'DataCorePlugin.CurrentGame': 'LeMansUltimate' }), '9');
-  for (const tcCutProperty of ['', ' ', null, 1, true]) {
-    const invalid = structuredClone(config);
-    invalid.cars[0].tcCutProperty = tcCutProperty;
-    assert.throws(() => validateProfiles(invalid), /tcCutProperty/);
-  }
   for (const width of [1920, 2560]) {
-    const panel = createDashboard(width).Screens[0].Items.find(i => i.Name === 'Car settings');
+    const items = flatten(createDashboard(width).Screens[0].Items);
+    const panel = items.find(i => i.Name === 'Car settings');
+    const liveLimit = items.find(i => i.Name === 'Cluster scale source');
     assert.equal(panel.Childrens.length, 10);
+    assert.equal(items.some(i => i.Name.startsWith('Boost ')), false);
     for (const key of channels) {
       const item = panel.Childrens.find(i => i.Name === `${key} setting`);
-      assert.ok(item.Top > 140 && item.Top + item.Height < 178);
+      assert.ok(item.Top > liveLimit.Top + liveLimit.Height);
+      assert.ok(item.Top + item.Height <= liveLimit.Top + 150);
       assert.equal(new Function('$prop', item.Bindings.Text.Formula.Expression)(p => props()[p] ?? null), '--');
     }
   }
@@ -629,27 +743,12 @@ test('map weather preserves valid temperatures and calm wind without inventing m
   for (const [value, expected] of [[0, '0.0 km/h'], [-1, '--'], [null, '--'], [true, '--'], ['invalid', '--']]) {
     assert.equal(evaluate('return windSpeed();', props('AMS2', { 'DataCorePlugin.GameRawData.mWindSpeed': value })), expected);
   }
-  const config = structuredClone(profiles);
-  config.cars.push({ game: 'LeMansUltimate', carId: 'test-car', windSpeedMsProperty: 'ExamplePlugin.WindMs' });
-  validateProfiles(config);
-  const run = p => new Function('$prop', formula('return windSpeed();', config).Expression)(key => p[key] ?? null);
-  const p = props('LeMansUltimate', { CarId: 'test-car', 'ExamplePlugin.WindMs': 5 });
-  assert.equal(run(p), '18.0 km/h');
-  assert.equal(run({ ...p, 'ExamplePlugin.WindMs': null }), '--');
-  assert.equal(run({ ...p, CarId: 'another-car' }), '--');
-  assert.equal(run({ ...p, 'DataCorePlugin.GameRunning': false }), '--');
-  for (const windSpeedMsProperty of ['', ' ', null, 1]) {
-    const invalid = structuredClone(config);
-    invalid.cars[0].windSpeedMsProperty = windSpeedMsProperty;
-    assert.throws(() => validateProfiles(invalid), /windSpeedMsProperty/);
-  }
   for (const width of [1920, 2560]) {
     const items = flatten(createDashboard(width).Screens[0].Items);
     const panel = items.find(i => i.Name === 'Map panel');
-    const map = items.find(i => i.Name === 'Track minimap');
     for (const name of ['Air', 'Track', 'Wind']) {
       const reading = items.find(i => i.Name === `Map ${name}`);
-      assert.ok(reading.Top >= panel.Top && reading.Top + reading.Height < map.Top);
+      assert.ok(reading.Top >= panel.Top && reading.Top + reading.Height <= panel.Top + panel.Height);
       assert.ok(reading.Left >= panel.Left && reading.Left + reading.Width < panel.Left + panel.Width);
     }
   }
@@ -690,13 +789,12 @@ test('overall leaderboard pages the full grid in two columns without losing or r
 });
 
 test('wind direction uses explicit FROM bearings and forward headings without reversing head/tailwind', () => {
-  const config = structuredClone(profiles);
-  config.cars.push({ game: 'AMS2', carId: 'test-car',
-    windFromDegreesProperty: 'Example.WindFrom', headingDegreesProperty: 'Example.Heading' });
-  validateProfiles(config);
-  const run = (expression, wind, heading, extra = {}) => new Function('$prop', formula(expression, config).Expression)(
-    key => props('AMS2', { CarId: 'test-car', 'Example.WindFrom': wind, 'Example.Heading': heading,
-      'DataCorePlugin.GameRawData.mWindSpeed': 5, ...extra })[key] ?? null);
+  const run = (expression, wind, heading, extra = {}) => new Function('$prop', formula(expression).Expression)(
+    key => props('AMS2', {
+      'DataCorePlugin.GameData.WindFromDegrees': wind,
+      'DataCorePlugin.GameData.HeadingDegrees': heading,
+      'DataCorePlugin.GameRawData.mWindSpeed': 5, ...extra,
+    })[key] ?? null);
   for (const [bearing, expected] of [[0, 'N 0'], [45, 'NE 45'], [90, 'E 90'], [135, 'SE 135'],
     [180, 'S 180'], [225, 'SW 225'], [270, 'W 270'], [315, 'NW 315'], [360, 'N 0'], [359.9, 'N 0']]) {
     assert.equal(run('return windCompass();', bearing, 0), 'FROM ' + expected + ' deg');
@@ -713,17 +811,9 @@ test('wind direction uses explicit FROM bearings and forward headings without re
   }
   assert.equal(run('return windRelative();', 315, null), 'CAR --');
   assert.equal(run('return windCompass();', 315, null), 'FROM NW 315 deg');
-  assert.equal(run('return windCompass();', 315, 0, { CarId: 'different-car' }), 'FROM --');
   assert.equal(run('return windCompass();', 315, 0, { 'DataCorePlugin.GameRunning': false }), 'FROM --');
   for (const expression of ['return windCompass();', 'return windRelative();']) {
     assert.equal(run(expression, null, null, { 'DataCorePlugin.GameRawData.mWindSpeed': 0 }), 'CALM');
-  }
-  for (const key of ['windFromDegreesProperty', 'headingDegreesProperty']) {
-    for (const value of ['', ' ', null, 1]) {
-      const invalid = structuredClone(config);
-      invalid.cars[0][key] = value;
-      assert.throws(() => validateProfiles(invalid), new RegExp(key));
-    }
   }
 });
 
@@ -773,50 +863,52 @@ test('fuel flashing uses the exact low-fuel threshold and excludes unavailable o
       assert.equal(item.BlinkEnabled, undefined);
       assert.equal(item.Bindings.BlinkEnabled, undefined);
       const targets = name === 'Fuel dial' ? ['MajorTickColor', 'DialStrokeColor'] : ['TextColor'];
+      const normalColor = name === 'Fuel dial' ? '#FFEBCBB4' : '#FFFFB02E';
       for (const target of targets) {
         const run = (p, time) => new Function('$prop', 'Date', item.Bindings[target].Formula.Expression)(
           key => p[key] ?? null, class extends Date { constructor() { super(time); } });
-        for (const [time, color] of [[0, '#FFFF0000'], [499, '#FFFF0000'], [500, '#FFFFB02E'], [999, '#FFFFB02E'], [1000, '#FFFF0000']]) {
+        for (const [time, color] of [[0, '#FFFF0000'], [499, '#FFFF0000'], [500, normalColor],
+          [999, normalColor], [1000, '#FFFF0000']]) {
           for (const game of ['AssettoCorsa', 'AssettoCorsaRally', 'Automobilista2', 'LeMansUltimate']) {
             assert.equal(run(props(game, { 'DataCorePlugin.GameData.Fuel': 6 }), time), color);
-            assert.equal(run(props(game, { 'DataCorePlugin.GameData.Fuel': 10 }), time), '#FFFFB02E');
+            assert.equal(run(props(game, { 'DataCorePlugin.GameData.Fuel': 10 }), time), normalColor);
           }
-          assert.equal(run({}, time), '#FFFFB02E');
+          assert.equal(run({}, time), normalColor);
         }
       }
     }
   }
 });
 
-test('vehicle configuration rejects malformed, ambiguous and out-of-range profiles', () => {
-  const copy = () => structuredClone(profiles);
-  assert.equal(validateProfiles(copy()).defaults.race.speedKmh, 360);
-  const bad = [
-    {}, { ...copy(), cars: {} }, { ...copy(), tyres: true },
-    { ...copy(), defaults: { ...copy().defaults, racing: {} } },
-  ];
-  for (const [field, value] of [['speedKmh', 0], ['speedKmh', '100'], ['rpmFallback', Infinity], ['rpmFallback', 400]]) {
-    const c = copy(); c.defaults.rally[field] = value; bad.push(c);
+test('temperature displays use direct SimHub readings without invented warning thresholds', () => {
+  for (const [key, colorFunction, expected] of [
+    ['OilTemperature', 'temperatureGaugeColor', '#FFEBCBB4'],
+    ['WaterTemperature', 'temperatureGaugeColor', '#FFEBCBB4'],
+    ['OilTemperature', 'temperatureValueColor', '#FFFFB02E'],
+    ['WaterTemperature', 'temperatureValueColor', '#FFFFB02E'],
+    ['OilTemperature', 'temperatureLabelColor', '#FFC5B39A'],
+    ['WaterTemperature', 'temperatureLabelColor', '#FFC5B39A'],
+  ]) {
+    const run = value => new Function('$prop', formula(`return ${colorFunction}('${key}');`).Expression)(
+      name => props('AC', { [key]: value })[name] ?? null);
+    assert.equal(run(95), expected);
+    assert.equal(run(300), expected);
   }
-  for (const entry of [
-    { game: 'AC' }, { game: ' ', carId: 'test' }, { game: 'AC', carId: 1 },
-    { game: 'AC', carId: 'test', rpmMax: -1 }, { game: 'AC', carId: 'test', speed: 300 },
-  ]) bad.push({ ...copy(), cars: [entry] });
-  bad.push({ ...copy(), cars: [{ game: 'Assetto Corsa', carId: 'GT' }, { game: 'assettocorsa', carId: 'gt' }] });
-  const defaultOverride = copy(); defaultOverride.defaults.race.rpmMax = 10000; bad.push(defaultOverride);
-  for (const c of bad) assert.throws(() => validateProfiles(c));
-});
-
-test('speed scales are stable profiles, not observed speed', () => {
-  for (const [game, expected] of [['AssettoCorsa', 360], ['Automobilista2', 360], ['LeMansUltimate', 360], ['AssettoCorsaRally', 240]]) {
-    for (const speed of [0, 50, 999, null]) {
-      const p = props(game, { 'DataCorePlugin.GameData.SpeedKmh': speed });
-      assert.equal(evaluate('return speedMaximum();', p), expected);
+  assert.equal(evaluate('return raceWarnings();', props('AC', { OilTemperature: 300, WaterTemperature: 300 })),
+    'WARNINGS / CHECK GAME');
+  for (const width of [1920, 2560]) {
+    const items = flatten(createDashboard(width).Screens[0].Items);
+    for (const [name, key] of [['Oil', 'OilTemperature'], ['Coolant', 'WaterTemperature']]) {
+      const dial = items.find(i => i.Name === `${name} temperature dial`);
+      assert.ok(dial.Bindings.MajorTickColor && dial.Bindings.DialStrokeColor);
+      assert.ok(items.find(i => i.Name === `${name} temperature label`).Bindings.TextColor);
+      assert.ok(items.find(i => i.Name === `${name} temperature`).Bindings.TextColor);
+      assert.match(dial.Bindings.MajorTickColor.Formula.Expression, new RegExp(`temperatureGaugeColor\\('${key}'\\)`));
     }
   }
 });
 
-test('RPM scale follows changing vehicles, rounds up, and labels explicit fallbacks', () => {
+test('RPM scale uses only a SimHub-reported maximum and marks a missing limit unavailable', () => {
   for (const [limit, max] of [[2500, 2.5], [2750, 3], [8500, 9], [16000, 16]]) {
     const p = props('AssettoCorsa', { MaxRpm: limit });
     assert.equal(evaluate('return rpmScale();', p), max);
@@ -824,22 +916,15 @@ test('RPM scale follows changing vehicles, rounds up, and labels explicit fallba
   }
   const p = props('AssettoCorsa', { MaxRpm: null, 'DataCorePlugin.GameData.CarSettings_MaxRPM': 2400 });
   assert.equal(evaluate('return rpmMax();', p), 2400);
-  for (const [game, expected] of [['AssettoCorsa', 9000], ['AssettoCorsaRally', 8000]]) {
-    const missing = props(game, { MaxRpm: null });
-    assert.equal(evaluate('return rpmMax();', missing), expected);
-    assert.equal(evaluate('return rpmSource();', missing), 'PROFILE');
+  for (const game of ['AssettoCorsa', 'AssettoCorsaRally', 'RichardBurnsRally']) {
+    const missing = props(game, { MaxRpm: null, 'DataCorePlugin.GameData.CarSettings_MaxRPM': null });
+    assert.equal(evaluate('return rpmMax();', missing), null);
+    assert.equal(evaluate('return rpmScale();', missing), 8, '8k is only the display scale when SimHub gives no limit');
+    assert.equal(evaluate('return rpmSource();', missing), 'UNAVAILABLE');
+    assert.equal(evaluate('return rpmRatio();', { ...missing, 'DataCorePlugin.GameData.Rpms': 7000 }), null);
   }
-});
-
-test('exact game/car profiles override ranges without leaking into another car or game', () => {
-  const config = validateProfiles({
-    ...structuredClone(profiles),
-    cars: [{ game: 'Assetto Corsa', carId: 'sample_formulacar', rpmMax: 15000, speedKmh: 400 }],
-  });
-  const run = p => new Function('$prop', formula('return [rpmMax(), rpmScale(), speedMaximum(), rpmSource()];', config).Expression)(key => p[key] ?? null);
-  assert.deepEqual(run(props('AssettoCorsa', { 'DataCorePlugin.GameData.CarId': 'SAMPLE_FORMULACAR' })), [15000, 15, 400, 'OVERRIDE']);
-  assert.deepEqual(run(props('AssettoCorsa', { 'DataCorePlugin.GameData.CarId': 'another-car' })), [8000, 8, 360, 'LIVE LIMIT']);
-  assert.deepEqual(run(props('Automobilista2', { 'DataCorePlugin.GameData.CarId': 'sample_formulacar' })), [8000, 8, 360, 'LIVE LIMIT']);
+  assert.equal(evaluate('return speedValue();', props('AC', { 'DataCorePlugin.GameData.SpeedKmh': 321 })), 321);
+  assert.equal(createDashboard(1920).Screens[0].Items.some(item => item.Name === 'Speed dial'), false);
 });
 
 test('position and class capability checks are explicit and never promise an all-clear', () => {
@@ -863,10 +948,11 @@ test('position and class capability checks are explicit and never promise an all
 });
 
 for (const width of [1920, 2560]) {
-  test(`${width}x1080 uses three native dials with bounded values and unavailable needles`, () => {
+  test(`${width}x1080 keeps digital speed inside the RPM dial and removes the speedometer`, () => {
     const items = flatten(createDashboard(width).Screens[0].Items);
-    const dials = items.filter(i => ['Speed dial', 'RPM dial', 'Fuel dial'].includes(i.Name));
-    assert.deepEqual(dials.map(i => i.Name), ['Speed dial', 'RPM dial', 'Fuel dial']);
+    const dials = items.filter(i => ['RPM dial', 'Fuel dial'].includes(i.Name));
+    assert.deepEqual(dials.map(i => i.Name), ['RPM dial', 'Fuel dial']);
+    assert.equal(items.some(i => i.Name === 'Speed dial'), false);
     const run = (item, key, p) => new Function('$prop', item.Bindings[key].Formula.Expression)(k => p[k] ?? null);
     for (const dial of dials) {
       assert.equal(run(dial, 'ShowNeedle', {}), false);
@@ -875,25 +961,85 @@ for (const width of [1920, 2560]) {
       assert.equal(run(dial, 'ShowNeedle', zero), true);
       assert.equal(run(dial, 'Value', zero), 0);
       const high = props('AssettoCorsa', { 'DataCorePlugin.GameData.SpeedKmh': 999, 'DataCorePlugin.GameData.Rpms': 99999, 'DataCorePlugin.GameData.Fuel': 999 });
-      assert.equal(run(dial, 'Value', high), dial.Name === 'Speed dial' ? 360 : dial.Name === 'RPM dial' ? 8 : 100);
+      assert.equal(run(dial, 'Value', high), dial.Name === 'RPM dial' ? 8 : 100);
     }
-    const fuel = dials[2];
-    const [speed, rpm] = dials;
-    const center = item => ({ x: item.Left + item.Width / 2, y: item.Top + item.Height / 2 });
-    const speedCenter = center(speed), rpmCenter = center(rpm), fuelCenter = center(fuel);
-    assert.ok(rpm.Width >= speed.Width * 1.4, 'RPM must remain the dominant instrument');
-    assert.ok(speedCenter.x < rpmCenter.x && speedCenter.y > rpmCenter.y, 'Speedometer is staggered down and left');
-    const overlap = rpm.OuterRadius + speed.OuterRadius -
-      Math.hypot(speedCenter.x - rpmCenter.x, speedCenter.y - rpmCenter.y);
-    assert.ok(overlap > 0 && overlap < speed.Width * 0.25, 'Speedometer slightly underlaps RPM');
-    assert.ok(Math.abs(overlap - 10) < 0.001, 'Only 10 pixels of rim underlap keeps speed markings readable');
-    assert.ok(items.indexOf(speed) < items.indexOf(rpm), 'RPM is drawn in front of speed');
-    assert.equal(rpm.DialBackgroundColor, '#FF101010', 'Opaque RPM face masks the underlap');
-    assert.ok(Math.hypot(fuelCenter.x - rpmCenter.x, fuelCenter.y - rpmCenter.y) +
-      fuel.OuterRadius < rpm.OuterRadius, 'Fuel fits inside the RPM instrument');
-    for (const name of ['Gear', 'Speed', 'Fuel state']) {
+    const [rpm, fuel] = dials;
+    const oil = items.find(i => i.Name === 'Oil temperature dial');
+    const coolant = items.find(i => i.Name === 'Coolant temperature dial');
+    for (const dial of [fuel, oil, coolant]) {
+      assert.deepEqual([dial.StartAngle, dial.SweepAngle], [135, 270], `${dial.Name} shares gauge endpoints`);
+    }
+    for (const dial of [rpm, fuel, oil, coolant]) {
+      assert.equal(dial.ShowDialGlassEffect, true, `${dial.Name} uses the subtle glass effect`);
+      assert.equal(dial.ScaleGlowRadius, 3, `${dial.Name} uses a small scale glow`);
+      assert.equal(dial.OuterStrokeThickness, dial === rpm ? 5 : 3, `${dial.Name} has its intended bezel width`);
+    }
+    for (const [dial, hubName] of [[fuel, 'Fuel center hub'], [oil, 'Oil temperature center hub'],
+      [coolant, 'Coolant temperature center hub']]) {
+      const hub = items.find(i => i.Name === hubName);
+      assert.equal(hub.Image, gaugeHubImage.name);
+      assert.ok(Math.abs(hub.Width - dial.Width * 0.12) < 0.001);
+      assert.ok(Math.abs(hub.Left + hub.Width / 2 - dial.Left - dial.Width / 2) < 0.001);
+      assert.ok(Math.abs(hub.Top + hub.Height / 2 - dial.Top - dial.Height / 2) < 0.001);
+      assert.ok(Math.abs(dial.CapRadius / dial.OuterRadius - rpm.CapRadius / rpm.OuterRadius) < 0.001);
+    }
+    assert.equal(fuel.ScaleLabelStyle.LabelRadius, 29);
+    assert.equal(oil.ScaleLabelStyle.LabelRadius, 25);
+    assert.equal(coolant.ScaleLabelStyle.LabelRadius, 25);
+    assert.equal(rpm.MajorTickSize, '12,3');
+    assert.equal(rpm.MinorTickSize, '6,2');
+    assert.equal(rpm.MinorTickColor, '#FFD3B69F');
+    const speedLabel = items.find(i => i.Name === 'Speed label');
+    const speed = items.find(i => i.Name === 'Speed'), unit = items.find(i => i.Name === 'Speed unit');
+    const rpmLabel = items.find(i => i.Name === 'RPM label');
+    assert.equal(new Function('$prop', speed.Bindings.Text.Formula.Expression)(key =>
+      props('AC', { 'DataCorePlugin.GameData.SpeedKmh': 161 })[key] ?? null), '161');
+    assert.equal(new Function('$prop', unit.Bindings.Text.Formula.Expression)(key => props('AC')[key] ?? null), 'KM/H');
+    for (const item of [speed, unit]) {
+      assert.ok(item.Left >= rpm.Left && item.Left + item.Width <= rpm.Left + rpm.Width);
+      assert.ok(item.Top >= rpm.Top && item.Top + item.Height <= rpm.Top + rpm.Height);
+    }
+    assert.equal(speedLabel.Text, 'SPEED');
+    const gearLabel = items.find(i => i.Name === 'Gear label'), gear = items.find(i => i.Name === 'Gear');
+    const limiter = items.find(i => i.Name === 'Pit limiter');
+    assert.equal(speed.FontSize, gear.FontSize);
+    assert.equal(speedLabel.Top, gearLabel.Top);
+    assert.equal(speed.Top, gear.Top);
+    assert.ok(gear.Left - (speed.Left + speed.Width) <= 20, 'Speed and gear readouts are close without overlapping');
+    assert.ok(rpmLabel.Top < speedLabel.Top && speed.Top + speed.Height <= unit.Top);
+    assert.ok(unit.Top + unit.Height <= limiter.Top);
+    assert.ok(rpmLabel.Top > rpm.Top + rpm.Height / 2, 'RPM scale label sits below the needle hub');
+    assert.ok(speed.Left + speed.Width < rpm.Left + rpm.Width / 2, 'Speed readout is lower-left');
+    assert.ok(gear.Left > rpm.Left + rpm.Width / 2 && gearLabel.Left > rpm.Left + rpm.Width / 2, 'Gear is lower-right');
+    assert.ok(gear.Top > rpm.Top + rpm.Height / 2 && limiter.Top > gear.Top + gear.Height, 'Limiter sits at the gauge bottom');
+    assert.equal(limiter.FontWeight, 'Bold');
+    assert.equal(rpm.DialBackgroundColor, '#FF30383A', 'Opaque RPM face contains the digital speed readout');
+    const driving = items.find(i => i.Name === 'Driving panel');
+    assert.ok(rpm.Left < driving.Left + driving.Width / 2, 'RPM dial is on the left side of the center panel');
+    assert.ok(oil.Left >= rpm.Left + rpm.Width && coolant.Left >= rpm.Left + rpm.Width,
+      'Oil and coolant gauges sit to the right of the RPM dial');
+    assert.ok(oil.Top < coolant.Top && coolant.Top < fuel.Top, 'Small gauges form a vertical right-side column');
+    assert.ok(oil.Top + oil.Height <= coolant.Top && coolant.Top + coolant.Height <= fuel.Top,
+      'Right-side gauges do not overlap vertically');
+    assert.ok(rpm.Width > oil.Width * 3, 'RPM dial remains the dominant gauge');
+    const gaugeCenterX = oil.Left + oil.Width / 2;
+    assert.equal(oil.Width, 112);
+    assert.equal(coolant.Width, 112);
+    assert.equal(fuel.Width, 112);
+    assert.ok(Math.abs(coolant.Left + coolant.Width / 2 - gaugeCenterX) < 0.001);
+    assert.ok(Math.abs(fuel.Left + fuel.Width / 2 - gaugeCenterX) < 0.001,
+      'Oil, coolant, and fuel gauges share a right-column centerline');
+    for (const [name, gauge] of [['Oil temperature label', oil], ['Oil temperature', oil],
+      ['Coolant temperature label', coolant], ['Coolant temperature', coolant], ['Fuel state', fuel], ['Fuel value', fuel]]) {
       const text = items.find(i => i.Name === name);
-      assert.ok(!text.Text.includes('OUTER') && !text.Text.includes('INNER'));
+      assert.equal(text.Left, gauge.Left, `${name} aligns under its gauge`);
+      assert.ok(text.Top >= gauge.Top + gauge.Height, `${name} is below its gauge`);
+    }
+    assert.ok(items.find(i => i.Name === 'Oil temperature').FontSize > items.find(i => i.Name === 'Oil temperature label').FontSize);
+    assert.ok(items.find(i => i.Name === 'Coolant temperature').FontSize > items.find(i => i.Name === 'Coolant temperature label').FontSize);
+    for (const name of ['Gear', 'Speed', 'Speed unit', 'Fuel state']) {
+      const text = items.find(i => i.Name === name);
+      assert.ok(text);
     }
     for (const [key, value] of [['Fuel', -1], ['MaxFuel', 0], ['MaxFuel', null]]) {
       assert.equal(run(fuel, 'ShowNeedle', props('AssettoCorsa', { ['DataCorePlugin.GameData.' + key]: value })), false);
@@ -910,6 +1056,15 @@ for (const width of [1920, 2560]) {
       assert.equal(rival.LeaderboardPosition, offset);
       assert.match(rival.NoDataText, /no class rival/);
     }
+    const timingPanel = items.find(i => i.Name === 'Timing panel');
+    const deltaExplanation = items.find(i => i.Name === 'Delta explanation');
+    assert.equal(deltaExplanation.Text, 'DELTA TO BEST');
+    for (const name of ['Class ahead gap', 'Class behind gap']) {
+      const gap = items.find(i => i.Name === name);
+      assert.equal(gap.Width, 120);
+      assert.ok(gap.Left + gap.Width <= timingPanel.Left + timingPanel.Width - 24, name);
+    }
+    assert.ok(items.find(i => i.Name === 'Class behind').Top > items.find(i => i.Name === 'Class ahead').Top);
     const radar = items.find(i => i.Name === 'Nearby radar'), map = items.find(i => i.Name === 'Track minimap');
     assert.match(radar.$type, /\.RadarItem,/);
     assert.match(map.$type, /\.GeneratedStaticMapItem,/);
@@ -917,14 +1072,31 @@ for (const width of [1920, 2560]) {
     assert.equal(map.DisplayPerClassPosition, true);
     const panel = items.find(i => i.Name === 'Map panel');
     assert.equal(items.some(i => i.Name === 'Radar panel'), false, 'Map and radar share one panel');
-    assert.equal(radar.Width, 104, 'Radar is half its previous width');
-    assert.equal(radar.Height, 104, 'Radar is half its previous height');
+    assert.equal(radar.Width, 250);
+    assert.equal(radar.Height, 250);
     assert.equal(radar.Scale, 0.3);
-    assert.equal(radar.Left, panel.Left + 24, 'Radar stays bottom-left');
+    assert.equal(radar.Left, panel.Left + (panel.Width - radar.Width) / 2);
+    const radarTitle = items.find(i => i.Name === 'Radar title');
+    const mapStatus = items.find(i => i.Name === 'Map status');
+    assert.equal(radarTitle.Top, mapStatus.Top + mapStatus.Height);
+    assert.equal(radar.Top, radarTitle.Top + radarTitle.Height);
+    assert.equal(items.find(i => i.Name === 'Radar title').Left, items.find(i => i.Name === 'Map status').Left);
+    assert.equal(items.find(i => i.Name === 'Radar title').Width, items.find(i => i.Name === 'Map status').Width);
     assert.ok(radar.Top > panel.Top + panel.Height / 2);
-    assert.equal(map.Height, 320, 'Map gains space from the former radar panel');
-    assert.ok(map.Width * map.Height > 10 * radar.Width * radar.Height, 'Map remains the focus');
-    assert.ok(map.Top + map.Height < radar.Top, 'Radar does not cover the map');
+    assert.equal(map.Width, panel.Width - 32);
+    assert.equal(map.Height, 480);
+    assert.equal(map.TrackWidth, 8);
+    assert.equal(map.TrackBorderWidth, 3);
+    for (const name of ['Map viewport border top', 'Map viewport border bottom', 'Map viewport border left', 'Map viewport border right',
+      'Radar border top', 'Radar border bottom', 'Radar border left', 'Radar border right']) {
+      const border = items.find(i => i.Name === name);
+      assert.ok(border.Left >= panel.Left && border.Left + border.Width <= panel.Left + panel.Width);
+      assert.ok(border.Top >= panel.Top && border.Top + border.Height <= panel.Top + panel.Height);
+    }
+    assert.ok(map.Width * map.Height > 3.5 * radar.Width * radar.Height);
+    assert.equal(items.some(i => ['Radar status', 'Radar caution', 'Map caution'].includes(i.Name)), false);
+    assert.equal(items.some(i => i.IsTextItem && /RADAR \/ ALL CLASSES|NO DOTS IS NOT ALL-CLEAR/.test(i.Text)), false);
+    assert.ok(map.Top + map.Height < radar.Top);
     for (const component of [radar, map, ...items.filter(i => /^(Map |Radar )/.test(i.Name))]) {
       assert.ok(component.Left >= panel.Left && component.Left + component.Width <= panel.Left + panel.Width);
       assert.ok(component.Top >= panel.Top && component.Top + component.Height <= panel.Top + panel.Height);
@@ -933,6 +1105,11 @@ for (const width of [1920, 2560]) {
       assert.equal('Opponents' in component, false);
       assert.equal('MapReady' in component, false);
       assert.equal('LeaderboardMode' in component, false);
+    }
+    for (const name of ['Air', 'Track', 'Wind']) {
+      const reading = items.find(i => i.Name === `Map ${name}`);
+      assert.ok(reading.Top >= panel.Top && reading.Top + reading.Height < map.Top);
+      assert.ok(reading.Left >= panel.Left && reading.Left + reading.Width < panel.Left + panel.Width);
     }
     const circuit = items.find(i => i.Name === 'Circuit layout');
     for (const game of ['AssettoCorsa', 'Automobilista2', 'LeMansUltimate', 'AssettoCorsaRally', 'ETS2', 'ATS']) {
@@ -976,6 +1153,7 @@ for (const width of [1920, 2560]) {
       const panel = items.find(i => i.Name === 'Driving panel');
       for (const key of ['Throttle', 'Brake', 'Clutch', 'Handbrake']) {
         const pedal = items.find(i => i.Name === `${key} bar`);
+        assert.equal(pedal.Width, 32);
         assert.ok(pedal.Left > panel.Left + panel.Width / 2);
         assert.ok(pedal.Top > panel.Top + (items.find(i => i.Name === 'Cluster scale source').Top - panel.Top) * 0.75,
           'Pedals remain in the bottom portion of the instrument area, above boost');
@@ -992,25 +1170,26 @@ for (const width of [1920, 2560]) {
           assert.equal(run('Top', v) + run('Height', v), pedal.Top + pedal.Height);
         }
       }
+      const pedalBars = ['Throttle', 'Brake', 'Clutch', 'Handbrake'].map(key => items.find(i => i.Name === `${key} bar`));
+      assert.ok(pedalBars.every((pedal, index) => index === 0 || pedal.Left - pedalBars[index - 1].Left <= 48));
     }
     for (const name of ['Music title', 'Music artist']) {
       const item = items.find(i => i.Name === name);
       const p = { 'SystemInfosProvider.Title': 'W'.repeat(500), 'SystemInfosProvider.Artist': 'W'.repeat(500) };
       const result = new Function('$prop', item.Bindings.Text.Formula.Expression)(key => p[key] ?? null);
       assert.ok(result.endsWith('...'));
-      assert.ok(result.length <= Math.floor(item.Width / (name === 'Music title' ? 18 : 14)));
+      assert.ok(result.length <= Math.floor(item.Width / (name === 'Music title' ? 15 : 11)));
     }
   });
   test(`${width}x1080 native output is persistent, deterministic, correctly sized and self-contained`, async () => {
     const dashboard = createDashboard(width);
-    const file = new URL(`../${width}x1080/MangoDash%20MultiSim%20${width}x1080.djson`, import.meta.url);
+    const file = new URL(`../${width}x1080/Y.A.S.S%20${width}x1080.djson`, import.meta.url);
     assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), dashboard);
     assert.equal(dashboard.BaseWidth, width);
     assert.equal(dashboard.BaseHeight, 1080);
-    assert.equal(dashboard.Screens.length, 4);
-    assert.deepEqual(dashboard.Images, standbyImages.map(image => image.metadata));
+    assert.equal(dashboard.Screens.length, 1);
+    assert.deepEqual(dashboard.Images, dashboardImages.map(image => image.metadata));
     assert.deepEqual(await readFile(new URL(file.href + '.ressources')), standbyResources());
-    assert.equal(flatten(dashboard.Screens[0].Items).find(i => i.Name === 'Brand').Text, 'MangoDash');
     assert.equal(dashboard.Screens[0].IdleScreen, true);
     assert.equal(dashboard.Screens[0].PitScreen, true);
     const names = new Set();
@@ -1021,7 +1200,7 @@ for (const width of [1920, 2560]) {
       assert.ok(item.Left >= 0 && item.Top >= 0, item.Name);
       assert.ok(item.Left + item.Width <= width, `Horizontal bounds: ${item.Name}`);
       assert.ok(item.Top + item.Height <= 1080, `Vertical bounds: ${item.Name}`);
-      assert.ok(item.Width > 0 && item.Height > 0, item.Name);
+      assert.ok(item.Width > 0 && (item.Height > 0 || /^Wheel (FL|FR|RL|RR) life fill$/.test(item.Name)), item.Name);
       if (item.IsTextItem) assert.ok(item.Height >= item.FontSize * 1.25, `Font vertical clearance: ${item.Name}`);
       assert.match(item.BackgroundColor, /^#[A-F\d]{8}$/i);
     }
@@ -1068,13 +1247,13 @@ for (const width of [1920, 2560]) {
 }
 
 test('truck pages, telemetry and preview choices are removed in both resolutions', async () => {
-  assert.deepEqual(Object.keys(profiles.defaults), ['race', 'rally']);
   for (const width of [1920, 2560]) {
     const dashboard = createDashboard(width);
     const items = flatten(dashboard.Screens[0].Items);
-    assert.match(items.find(i => i.Name === 'Standby games').Text, /ASSETTO CORSA \/ AC RALLY \/ AUTOMOBILISTA 2 \/ LE MANS ULTIMATE/);
+    assert.match(items.find(i => i.Name === 'Standby games').Text, /ASSETTO CORSA \/ AC RALLY \/ AUTOMOBILISTA 2 \/ LE MANS ULTIMATE \/ RICHARD BURNS RALLY \(RSF\)/);
     assert.ok(!/ETS2|ATS|Truck|HAUL|GameRawData\.TruckValues|SIX SIMULATORS/.test(JSON.stringify(dashboard)));
     const html = await readFile(new URL(`../${width}x1080/preview.html`, import.meta.url), 'utf8');
+    assert.ok(html.includes('value="RichardBurnsRally"'));
     assert.ok(!/value="(?:ETS2|ATS)"|isTruck|TruckValues|Euro Truck|American Truck/.test(html));
     for (const game of ['ETS2', 'ATS', 'EuroTruckSimulator2', 'AmericanTruckSimulator']) {
       const p = props(game);
@@ -1096,30 +1275,70 @@ test('tyre remaining life preserves zero and validates the normalized 0..100 per
   }
 });
 
+test('tyre wear fill animates smoothly from empty to full and back', () => {
+  const items = flatten(createDashboard(1920).Screens[0].Items);
+  const track = items.find(i => i.Name === 'Wheel FL wear track');
+  const fill = items.find(i => i.Name === 'Wheel FL life fill');
+  const expression = fill.Bindings.Height.Formula.Expression;
+  const root = {};
+  const heightAt = (wear, time, state = root) => {
+    const input = props('AC', { 'DataCorePlugin.GameData.TyreWearFrontLeft': wear });
+    return new Function('$prop', 'Date', 'root', expression)(key => input[key] ?? null,
+      class extends Date { constructor() { super(time); } }, state);
+  };
+  assert.equal(heightAt(0, 0, {}), 0, 'Worn tyres are empty');
+  assert.equal(heightAt(100, 0, {}), track.Height, 'New tyres fill the wheel');
+  assert.equal(heightAt(100, 0), track.Height);
+  assert.equal(heightAt(0, 100), track.Height, 'A wear change starts at the current fill');
+  assert.ok(Math.abs(heightAt(0, 250) - track.Height / 2) < 0.001, 'Fill eases through halfway');
+  assert.equal(heightAt(0, 400), 0);
+  assert.equal(heightAt(100, 500), 0);
+  assert.ok(Math.abs(heightAt(100, 650) - track.Height / 2) < 0.001);
+  assert.equal(heightAt(100, 800), track.Height);
+  assert.equal(heightAt(null, 0, {}), 0, 'Missing wear remains empty');
+});
+
 for (const width of [1920, 2560]) {
-  test(`${width}x1080 shares a compact independent temperature/life panel across all four games`, () => {
+  test(`${width}x1080 shows four wheel graphics with per-corner tyre and brake data`, () => {
     const items = flatten(createDashboard(width).Screens[0].Items);
     const panel = items.find(i => i.Name === 'Tyre summary');
+    const panelBounds = items.find(i => i.Name === 'Tyre summary panel');
     const run = (expression, p) => new Function('$prop', expression)(key => p[key] ?? null);
     for (const game of ['AssettoCorsa', 'AssettoCorsaRally', 'Automobilista2', 'LeMansUltimate']) {
       assert.equal(run(panel.Bindings.Visible.Formula.Expression, props(game)), true);
       assert.equal(run(panel.Bindings.Visible.Formula.Expression, props(game, { 'DataCorePlugin.GameRunning': false })), false);
     }
     assert.equal(items.some(i => i.Name === 'Non circuit fluids'), false);
-    assert.ok(items.some(i => i.Name === 'Rally oil'));
+    assert.ok(items.some(i => i.Name === 'Rally stage panel'));
+    for (const name of ['Rally vehicle title', 'Rally water', 'Rally oil', 'Rally fuel']) {
+      assert.equal(items.some(i => i.Name === name), false, name);
+    }
+    assert.equal(items.filter(i => /^Wheel (FL|FR|RL|RR) casing$/.test(i.Name)).length, 4);
+    assert.equal(items.filter(i => /^Wheel (FL|FR|RL|RR) life fill$/.test(i.Name)).length, 4);
+    assert.equal(items.some(i => /tread|groove|shoulder/i.test(i.Name)), false);
+    const compound = items.find(i => i.Name === 'Tyre compound');
+    assert.match(compound.Bindings.Text.Formula.Expression, /detailReading\('compound', 'text', null\)/);
+    assert.equal(items.some(i => /life left/i.test(i.Name) || (i.IsTextItem && /life left/i.test(i.Text))), false);
     for (const [short, corner] of [['FL', 'FrontLeft'], ['FR', 'FrontRight'], ['RL', 'RearLeft'], ['RR', 'RearRight']]) {
       const temperature = items.find(i => i.Name === `Tyre ${short}`);
-      const life = items.find(i => i.Name === `Tyre ${short} life`);
+      const pressure = items.find(i => i.Name === `Tyre ${short} pressure`);
+      const brake = items.find(i => i.Name === `Tyre ${short} brake temperature`);
       const t = p => run(temperature.Bindings.Text.Formula.Expression, p);
-      const w = p => run(life.Bindings.Text.Formula.Expression, p);
-      const p = { ['DataCorePlugin.GameData.TyreTemperature' + corner]: 84, ['DataCorePlugin.GameData.TyreWear' + corner]: 0 };
+      const pressureValue = p => run(pressure.Bindings.Text.Formula.Expression, p);
+      const brakeValue = p => run(brake.Bindings.Text.Formula.Expression, p);
+      const p = props('AC', {
+        ['DataCorePlugin.GameData.TyreTemperature' + corner]: 84,
+        ['DataCorePlugin.GameData.TyrePressure' + corner]: 26.5,
+      });
       assert.equal(t(p), `${short} / 84 C`);
-      assert.equal(w(p), 'LIFE LEFT / 0.0%');
+      assert.equal(pressureValue(p), '26.5 psi');
+      assert.equal(brakeValue(p), 'B --');
       assert.equal(t({}), `${short} / --`);
-      assert.equal(w({}), 'LIFE LEFT / --');
-      assert.equal(t({ ['DataCorePlugin.GameData.TyreTemperature' + corner]: 84 }), `${short} / 84 C`);
-      assert.equal(w({ ['DataCorePlugin.GameData.TyreTemperature' + corner]: 84 }), 'LIFE LEFT / --');
-      assert.ok(temperature.Top + temperature.Height <= life.Top);
+      assert.equal(pressureValue({}), '--');
+      assert.match(brake.Bindings.Text.Formula.Expression, new RegExp(`detailReading\\('brake${short}', 'temperature', null\\)`));
+      assert.ok(temperature.Top >= panelBounds.Top && temperature.Top + temperature.Height <= panelBounds.Top + panelBounds.Height);
+      assert.ok(pressure.Top >= panelBounds.Top && pressure.Left >= panelBounds.Left);
+      assert.ok(brake.Top >= panelBounds.Top && brake.Left >= panelBounds.Left);
     }
   });
 }

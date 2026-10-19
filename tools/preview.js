@@ -11,9 +11,9 @@
   const animate = document.getElementById('animate');
   const entries = [];
   const tracks = [
-    ['NIGHT DRIVE / DEMO TRACK', 'DEMO ARTIST'],
-    ['COASTAL RUN / DEMO TRACK', 'DEMO ARTIST'],
-    ['AFTER THE CORNER / DEMO TRACK', 'DEMO ARTIST'],
+    ['NIGHT DRIVE / DEMO TRACK', 'Demo artist'],
+    ['COASTAL RUN / DEMO TRACK', 'Demo artist'],
+    ['AFTER THE CORNER / DEMO TRACK', 'Demo artist'],
   ];
   let trackIndex = 0;
   let musicPaused = false;
@@ -41,6 +41,9 @@
           width: item.Width + 'px', height: item.Height + 'px',
           background: argb(item.BackgroundColor),
         });
+        if (item.RadiusTopLeft || item.RadiusTopRight || item.RadiusBottomRight || item.RadiusBottomLeft) {
+          element.style.borderRadius = `${item.RadiusTopLeft || 0}px ${item.RadiusTopRight || 0}px ${item.RadiusBottomRight || 0}px ${item.RadiusBottomLeft || 0}px`;
+        }
         if (item.$type.includes('.ImageItem,')) {
           if (!images[item.Image]) throw new Error('Missing dashboard image: ' + item.Image);
           element.style.backgroundImage = `url("${images[item.Image]}")`;
@@ -103,8 +106,9 @@
     const radians = angle * Math.PI / 180;
     return [cx + Math.cos(radians) * radius, cy + Math.sin(radians) * radius];
   }
-  function line(svg, a, b, color, width) {
-    svg.append(svgNode('line', { x1: a[0], y1: a[1], x2: b[0], y2: b[1], stroke: color, 'stroke-width': width }));
+  function line(svg, a, b, color, width, opacity = 1) {
+    svg.append(svgNode('line', { x1: a[0], y1: a[1], x2: b[0], y2: b[1], stroke: color,
+      'stroke-width': width, 'stroke-opacity': opacity }));
   }
   function drawDial(element, item) {
     const signature = JSON.stringify(item);
@@ -114,26 +118,44 @@
     const cx = item.Width / 2, cy = item.Height / 2, radius = item.OuterRadius;
     const angle = value => item.StartAngle + item.SweepAngle * (value - item.Minimum) / (item.Maximum - item.Minimum);
     const step = item.MajorDivisionsCount;
-    svg.append(svgNode('circle', { cx, cy, r: radius, fill: argb(item.DialBackgroundColor), stroke: argb(item.DialStrokeColor), 'stroke-width': 2 }));
+    const defs = svgNode('defs'), glass = svgNode('linearGradient', { id: 'dial-glass', x1: '0%', y1: '0%', x2: '0%', y2: '100%' });
+    glass.append(svgNode('stop', { offset: '0%', 'stop-color': '#FFFFFF', 'stop-opacity': '0.12' }));
+    glass.append(svgNode('stop', { offset: '48%', 'stop-color': '#FFFFFF', 'stop-opacity': '0' }));
+    glass.append(svgNode('stop', { offset: '100%', 'stop-color': '#000000', 'stop-opacity': '0.10' }));
+    defs.append(glass);
+    svg.append(defs);
+    svg.append(svgNode('circle', { cx, cy, r: radius, fill: argb(item.DialBackgroundColor),
+      stroke: argb(item.DialStrokeColor), 'stroke-width': item.OuterStrokeThickness || 2 }));
+    const glow = Math.max(0, Number(item.ScaleGlowRadius) || 0), glowColor = argb(item.ScaleGlowColor || item.MajorTickColor);
     for (let value = item.Minimum, index = 0; value <= item.Maximum + 0.0001; value += step, index++) {
       const a = angle(value), r = item.MajorTickRadius;
       const warning = value > item.RangeOptimalEndValue;
       const color = warning ? argb(item.AboveOptimalStyle.ArcColor) : argb(item.MajorTickColor);
-      line(svg, point(cx, cy, r - 13, a), point(cx, cy, r, a), color, 3);
+      const majorWidth = Number(String(item.MajorTickSize).split(',')[1]) || 2;
+      const majorStart = point(cx, cy, r - 13, a), majorEnd = point(cx, cy, r, a);
+      if (glow) line(svg, majorStart, majorEnd, glowColor, majorWidth + glow * 2, 0.10);
+      line(svg, majorStart, majorEnd, color, majorWidth);
       const labelPoint = point(cx, cy, item.ScaleLabelStyle.LabelRadius, a);
-      svg.append(svgNode('text', { x: labelPoint[0], y: labelPoint[1], fill: color,
-        'font-family': 'Segoe UI, sans-serif', 'font-size': item.ScaleLabelStyle.LabelFontSize,
+      svg.append(svgNode('text', { x: labelPoint[0], y: labelPoint[1], fill: argb(item.ScaleLabelStyle.LabelColor || color),
+        'font-family': 'Bahnschrift, sans-serif', 'font-size': item.ScaleLabelStyle.LabelFontSize,
         'text-anchor': 'middle', 'dominant-baseline': 'central' }, Number(value.toFixed(2))));
       if (value + step <= item.Maximum + 0.0001) {
         for (let minor = 1; minor < item.MinorDivisionsCount; minor++) {
           const minorAngle = angle(value + step * minor / item.MinorDivisionsCount);
-          line(svg, point(cx, cy, r - 6, minorAngle), point(cx, cy, r, minorAngle), argb(item.MinorTickColor), 1);
+          const minorWidth = Number(String(item.MinorTickSize).split(',')[1]) || 1;
+          const minorStart = point(cx, cy, r - 6, minorAngle), minorEnd = point(cx, cy, r, minorAngle);
+          if (glow) line(svg, minorStart, minorEnd, glowColor, minorWidth + glow * 2, 0.08);
+          line(svg, minorStart, minorEnd, argb(item.MinorTickColor), minorWidth);
         }
       }
     }
+    if (item.ShowDialGlassEffect) {
+      svg.append(svgNode('circle', { cx, cy, r: radius - 1, fill: 'url(#dial-glass)', 'pointer-events': 'none' }));
+    }
     if (item.ShowNeedle) {
-      line(svg, [cx, cy], point(cx, cy, item.NeedleLength, angle(item.Value)), argb(item.MajorTickColor), item.NeedleThickness);
-      svg.append(svgNode('circle', { cx, cy, r: item.CapRadius, fill: argb(item.MajorTickColor) }));
+      const needleColor = argb(item.NeedleColor || item.MajorTickColor);
+      line(svg, [cx, cy], point(cx, cy, item.NeedleLength, angle(item.Value)), needleColor, item.NeedleThickness);
+      svg.append(svgNode('circle', { cx, cy, r: item.CapRadius, fill: needleColor }));
     }
     element.replaceChildren(svg);
     element.dataset.value = item.Value;
@@ -146,7 +168,8 @@
     const signature = JSON.stringify([item, stateControl.value, demoDrivers]);
     if (element.dataset.renderSignature === signature) return;
     element.dataset.renderSignature = signature;
-    const map = item.Name === 'Track minimap';
+    const rallyMap = item.Name === 'Rally stage map';
+    const map = item.Name === 'Track minimap' || rallyMap;
     const svg = svgNode('svg', { viewBox: map ? '0 0 400 220' : '0 0 208 208', width: '100%', height: '100%' });
     const state = stateControl.value;
     if (map && state === 'noMap') {
@@ -156,15 +179,26 @@
         svg.append(svgNode('polygon', { points: circuit.map(([x, y]) => `${x * 400},${y * 220}`).join(' '),
           fill: 'none', stroke: argb(item.TrackColor), 'stroke-width': 5, 'stroke-linejoin': 'round' }));
       }
-      for (const driver of demoDrivers.filter(d => d.player || state !== 'noOpponents')) {
-        if (map && !Number.isInteger(driver.mapIndex)) continue;
-        if (!map && !driver.nearby && !driver.player) continue;
-        const index = driver.mapIndex;
-        const x = map ? circuit[index][0] * 400 : 104 + driver.x * 6;
-        const y = map ? circuit[index][1] * 220 : 104 - driver.y * 6;
-        const color = driver.player ? '#ff8a1c' : driver.carClass === 'GT' ? '#ffb02e' : '#78a34d';
-        svg.append(svgNode('circle', { cx: x, cy: y, r: driver.player ? 9 : 7, fill: color, stroke: '#070504', 'stroke-width': 2 }));
-        if (map) svg.append(svgNode('text', { x, y: y - 13, fill: color, 'text-anchor': 'middle', 'font-size': 13 }, driver.player ? 'YOU' : driver.classPosition));
+      if (rallyMap) {
+        const progress = Math.max(0, Math.min(1,
+          Number(properties['DataCorePlugin.GameData.NewData.stageProgressPercent']) / 100 || 0));
+        const segment = progress * (circuit.length - 1), index = Math.floor(segment);
+        const fraction = segment - index, current = circuit[index], next = circuit[Math.min(index + 1, circuit.length - 1)];
+        const x = (current[0] + (next[0] - current[0]) * fraction) * 400;
+        const y = (current[1] + (next[1] - current[1]) * fraction) * 220;
+        svg.append(svgNode('circle', { cx: x, cy: y, r: 9, fill: '#ff8a1c', stroke: '#070504', 'stroke-width': 2 }));
+        svg.append(svgNode('text', { x, y: y - 13, fill: '#ff8a1c', 'text-anchor': 'middle', 'font-size': 13 }, 'YOU'));
+      } else {
+        for (const driver of demoDrivers.filter(d => d.player || state !== 'noOpponents')) {
+          if (map && !Number.isInteger(driver.mapIndex)) continue;
+          if (!map && !driver.nearby && !driver.player) continue;
+          const index = driver.mapIndex;
+          const x = map ? circuit[index][0] * 400 : 104 + driver.x * 6;
+          const y = map ? circuit[index][1] * 220 : 104 - driver.y * 6;
+          const color = driver.player ? '#ff8a1c' : driver.carClass === 'GT' ? '#ffb02e' : '#78a34d';
+          svg.append(svgNode('circle', { cx: x, cy: y, r: driver.player ? 9 : 7, fill: color, stroke: '#070504', 'stroke-width': 2 }));
+          if (map) svg.append(svgNode('text', { x, y: y - 13, fill: color, 'text-anchor': 'middle', 'font-size': 13 }, driver.player ? 'YOU' : driver.classPosition));
+        }
       }
       svg.append(svgNode('text', { x: map ? 200 : 104, y: map ? 216 : 204, fill: '#b07840',
         'text-anchor': 'middle', 'font-size': map ? 10 : 9 }, 'FICTIONAL PREVIEW DATA'));
@@ -176,8 +210,8 @@
     const state = stateControl.value;
     const phase = animate.checked ? Math.sin(time / 2000) : 0;
     const data = {
-      CarModel: game === 'AssettoCorsaRally' ? 'RALLY / GROUP A' : 'GT / ENDURANCE',
-      TrackName: game === 'AssettoCorsaRally' ? 'MOUNTAIN STAGE' : 'MANGODASH DEMO CIRCUIT',
+      CarModel: ['AssettoCorsaRally', 'RichardBurnsRally'].includes(game) ? 'RALLY / GROUP A' : 'GT / ENDURANCE',
+      TrackName: ['AssettoCorsaRally', 'RichardBurnsRally'].includes(game) ? 'MOUNTAIN STAGE' : 'DEMO CIRCUIT',
       SpeedKmh: 248 + phase * 34, Rpms: 7240 + phase * 800,
       Gear: 5, Fuel: 62, MaxFuel: 100,
       BrakeBias: 54.2, ABSLevel: 3, TCLevel: 4, TractionControlCut: 2, EngineMap: 1,
@@ -232,6 +266,11 @@
     if (state === 'noPosition') { data.MapAllowed = false; delete data.CarCoordinates01; delete data.CarCoordinates03; }
     if (state === 'shift') { data.Rpms = 7900; data.SpeedKmh = 272; data.Gear = 6; }
     if (state === 'low') data.Fuel = data.MaxFuel * 0.06;
+    if (state.startsWith('energy') && ['AssettoCorsa', 'Automobilista2', 'LeMansUltimate'].includes(game)) {
+      data.KERSPercent = state === 'energyEmpty' ? 0 : 65;
+      data.DRSAvailable = state !== 'energyEmpty';
+      data.DRSEnabled = state === 'energyActive';
+    }
     properties = {
       'DataCorePlugin.CurrentGame': game === 'idle' ? '' : game,
       'DataCorePlugin.GameRunning': game !== 'idle',
@@ -242,7 +281,7 @@
       'SystemInfosProvider.Title': tracks[trackIndex][0],
       'SystemInfosProvider.Artist': tracks[trackIndex][1],
     };
-    if (vehicleControl.value === 'highrev') data.Rpms = 13500 + phase * 2000;
+    if (vehicleControl.value === 'highrev') data.Rpms = state === 'shift' ? 15800 : 13500 + phase * 2000;
     if (state !== 'missing') {
       for (const [key, value] of Object.entries(data)) properties['DataCorePlugin.GameData.NewData.' + key] = value;
       const demoDetails = {
@@ -258,7 +297,9 @@
         penalties: 'NONE', penaltyActive: false, stageSeconds: 204.812, stageProgressPercent: 42,
         stageDistanceKm: 5.8, stageSplitSeconds: -1.25, stageResult: 'P3 / +2.4 s',
       };
-      for (const [key, value] of Object.entries(demoDetails)) properties['Demo.' + key] = value;
+      for (const [key, value] of Object.entries(demoDetails)) {
+        properties['DataCorePlugin.GameData.NewData.' + key] = value;
+      }
     } else {
       for (const key of Object.keys(properties)) {
         if (!['DataCorePlugin.CurrentGame', 'DataCorePlugin.GameRunning'].includes(key)) delete properties[key];
@@ -281,6 +322,7 @@
         if (key === 'Visible') element.style.display = value ? '' : 'none';
         else if (key === 'Text') element.textContent = value;
         else if (key === 'TextColor') element.style.color = argb(value);
+        else if (key === 'Left') element.style.left = value + 'px';
         else if (key === 'Width') element.style.width = value + 'px';
         else if (key === 'Height') element.style.height = value + 'px';
         else if (key === 'Top') element.style.top = value + 'px';
@@ -313,7 +355,7 @@
         } else content = rival ? rival.name : item.NoDataText;
         if (element.textContent !== content) element.textContent = content;
       }
-      if (item.Name === 'Track minimap' || item.Name === 'Nearby radar') drawAwareness(element, resolved);
+      if (['Track minimap', 'Rally stage map', 'Nearby radar'].includes(item.Name)) drawAwareness(element, resolved);
     }
   }
   function fit() {

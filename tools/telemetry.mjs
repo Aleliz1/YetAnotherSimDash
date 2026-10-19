@@ -1,71 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { detailFields } from './details.mjs';
-
-export const boostChannels = [
-  ['kersChargePercentProperty', 'KERS CHARGE', 'percent'],
-  ['pushToPassActiveProperty', 'P2P ACTIVE', 'switch'],
-  ['pushToPassRemainingProperty', 'P2P USES LEFT', 'count'],
-  ['mguModeProperty', 'MGU MODE', 'mode'],
-  ['mguDeployKwProperty', 'MGU DEPLOY', 'power'],
-  ['mguRecoverKwProperty', 'MGU RECOVER', 'power'],
-  ['hybridEnergyMjProperty', 'ENERGY LEFT', 'energy'],
-];
-
-export function validateProfiles(config) {
-  if (!config || !config.defaults || !Array.isArray(config.cars)) throw new Error('Profiles require defaults and a cars array');
-  for (const key of Object.keys(config)) if (!['defaults', 'cars'].includes(key)) throw new Error(`Unknown profiles section: ${key}`);
-  for (const key of Object.keys(config.defaults)) if (!['race', 'rally'].includes(key)) throw new Error(`Unknown default category: ${key}`);
-  const limits = { speedKmh: [20, 1000], rpmFallback: [500, 30000], rpmMax: [500, 30000],
-    oilWarningC: [1, 300], coolantWarningC: [1, 300] };
-  function check(entry, required = []) {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw new Error('Each vehicle profile must be an object');
-    for (const key of required) if (!(key in entry)) throw new Error(`Missing profile field: ${key}`);
-    for (const [key, bounds] of Object.entries(limits)) {
-      if (key in entry && (!Number.isFinite(entry[key]) || entry[key] < bounds[0] || entry[key] > bounds[1])) {
-        throw new Error(`Invalid profile ${key}: expected ${bounds[0]}..${bounds[1]}`);
-      }
-    }
-    for (const key of Object.keys(entry)) {
-      if (!(key in limits) && !['game', 'carId', 'detailProperties', 'tcCutProperty', 'windSpeedMsProperty', 'windFromDegreesProperty', 'headingDegreesProperty', 'batteryVoltageProperty', 'batteryChargePercentProperty', ...boostChannels.map(channel => channel[0])].includes(key)) throw new Error(`Unknown profile field: ${key}`);
-    }
-    if ('detailProperties' in entry) {
-      if (!entry.detailProperties || typeof entry.detailProperties !== 'object' || Array.isArray(entry.detailProperties)) throw new Error('detailProperties must be an object');
-      for (const [key, value] of Object.entries(entry.detailProperties)) {
-        if (!detailFields.some(field => field[0] === key)) throw new Error(`Unknown detail property: ${key}`);
-        if (typeof value !== 'string' || !value.trim()) throw new Error(`detailProperties.${key} must be a non-empty property name`);
-      }
-    }
-    if ('tcCutProperty' in entry && (typeof entry.tcCutProperty !== 'string' || !entry.tcCutProperty.trim())) {
-      throw new Error('tcCutProperty must be a non-empty SimHub property name');
-    }
-    if ('windSpeedMsProperty' in entry && (typeof entry.windSpeedMsProperty !== 'string' || !entry.windSpeedMsProperty.trim())) {
-      throw new Error('windSpeedMsProperty must be a non-empty SimHub property name');
-    }
-    for (const key of ['windFromDegreesProperty', 'headingDegreesProperty', 'batteryVoltageProperty', 'batteryChargePercentProperty', ...boostChannels.map(channel => channel[0])]) {
-      if (key in entry && (typeof entry[key] !== 'string' || !entry[key].trim())) throw new Error(`${key} must be a non-empty SimHub property name`);
-    }
-  }
-  for (const mode of ['race', 'rally']) {
-    check(config.defaults[mode], ['speedKmh', 'rpmFallback']);
-    for (const key of Object.keys(config.defaults[mode])) {
-      if (!['speedKmh', 'rpmFallback'].includes(key)) throw new Error(`Invalid default field: ${key}`);
-    }
-  }
-  const seen = new Set();
-  for (const entry of config.cars) {
-    check(entry, ['game', 'carId']);
-    if (typeof entry.game !== 'string' || !entry.game.trim() || typeof entry.carId !== 'string' || !entry.carId.trim()) {
-      throw new Error('Car overrides need non-empty game and carId strings');
-    }
-    const key = entry.game.toLowerCase().replace(/[^a-z0-9]/g, '') + ':' + entry.carId.toLowerCase();
-    if (seen.has(key)) throw new Error(`Duplicate vehicle profile: ${key}`);
-    seen.add(key);
-  }
-  return config;
-}
-
-export const profiles = validateProfiles(JSON.parse(readFileSync(new URL('../vehicle-profiles.json', import.meta.url), 'utf8')));
-
 // Kept ES5-compatible for SimHub's JavaScript formula interpreter.
 export const helpers = `
 function read(key) { return $prop(key); }
@@ -82,14 +14,20 @@ function number(value) {
 }
 function flag(value) { return value === true || value === 1 || value === 'True' || value === 'true' || value === '1'; }
 function game() { return String(read('DataCorePlugin.CurrentGame') || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
+function isRichardBurnsRally() {
+  var g = game();
+  return g === 'rbr' || g === 'richardburnsrally' || g === 'rbrrsf' ||
+    g === 'richardburnsrallyrsf' || g === 'rallysimfansrbr';
+}
 function mode() {
   var g = game();
-  if (g === 'assettocorsarally' || g === 'acrally') return 'rally';
+  if (g === 'assettocorsarally' || g === 'acrally' || isRichardBurnsRally()) return 'rally';
   if (g === 'assettocorsa' || g === 'ac' || g === 'automobilista2' || g === 'ams2' || g === 'lemansultimate' || g === 'lmu') return 'race';
   return 'unsupported';
 }
 function gameName() {
   var g = game();
+  if (isRichardBurnsRally()) return 'RICHARD BURNS RALLY';
   if (mode() === 'rally') return 'ASSETTO CORSA RALLY';
   if (g === 'assettocorsa' || g === 'ac') return 'ASSETTO CORSA';
   if (g === 'automobilista2' || g === 'ams2') return 'AUTOMOBILISTA 2';
@@ -150,35 +88,37 @@ function redlineAccentColor() {
   var strength = ratio === null ? 0 : Math.max(0, Math.min(1, (ratio - 0.90) / 0.05));
   return blendColor('#FF303030', '#FFFF3B24', strength);
 }
+function rpmDiffuserColor() {
+  var ratio = live() ? rpmRatio() : null;
+  if (ratio === null) return '#FF303030';
+  if (ratio <= 0.70) return blendColor('#FF59432B', '#FFFFB02E', ratio / 0.70);
+  return blendColor('#FFFFB02E', '#FFFF3B24', Math.min(1, (ratio - 0.70) / 0.25));
+}
+function rpmBezelColor() {
+  var ratio = live() ? rpmRatio() : null;
+  if (ratio !== null && ratio >= 0.95 && new Date().getTime() % 500 >= 250) return '#FF50302B';
+  return rpmDiffuserColor();
+}
+function kersPercent() {
+  var value = live() && mode() === 'race' ? number(data('KERSPercent')) : null;
+  return value !== null && value >= 0 && value <= 100 ? value : null;
+}
+function drsState() {
+  if (!live() || mode() !== 'race' || game() === 'lemansultimate' || game() === 'lmu') return null;
+  var active = telemetrySwitch(data('DRSEnabled')), available = telemetrySwitch(data('DRSAvailable'));
+  if (active === true) return 'ACTIVE';
+  if (available === true) return 'READY';
+  return active === false || available === false ? 'OFF' : null;
+}
 function engineTemperature(key) {
   var value = live() ? number(data(key)) : null;
   return value === null || value <= 0 ? null : value;
 }
-function batteryReading(key, percent) {
-  if (!live()) return null;
-  var source = profile()[key], value = source ? number(read(source)) : null;
-  return value === null || value < 0 || (!percent && value === 0) || (percent && value > 100) ? null : value;
-}
-function boostReading(key, kind) {
-  if (!live()) return '--';
-  var source = profile()[key], value = source ? read(source) : null;
-  if (kind === 'switch') {
-    var enabled = telemetrySwitch(value);
-    return enabled === null ? '--' : enabled ? 'ON' : 'OFF';
-  }
-  if (kind === 'mode') {
-    if (typeof value === 'string' && value.replace(/^\\s+|\\s+$/g, '') !== '') return value;
-    return typeof value === 'number' && isFinite(value) && value >= 0 ? String(value) : '--';
-  }
-  var n = number(value);
-  if (n === null || n < 0 || (kind === 'percent' && n > 100) || (kind === 'count' && n % 1 !== 0)) return '--';
-  return metric(n, kind === 'count' ? 0 : 1,
-    kind === 'percent' ? '%' : kind === 'power' ? ' kW' : kind === 'energy' ? ' MJ' : '');
-}
+function temperatureGaugeColor() { return '#FFEBCBB4'; }
+function temperatureValueColor() { return '#FFFFB02E'; }
+function temperatureLabelColor() { return '#FFC5B39A'; }
 function detailValue(key, normalized) {
-    if (!live()) return null;
-    var mappings = profile().detailProperties || {};
-    return mappings[key] ? read(mappings[key]) : normalized ? data(normalized) : null;
+    return live() ? data(normalized || key) : null;
   }
 function detailNumber(key) { return number(detailValue(key)); }
 function detailReading(key, kind, normalized) {
@@ -224,9 +164,6 @@ function raceWarnings() {
     if (!live()) return '--';
     var warnings = [];
     if (lowFuel()) warnings.push('LOW FUEL');
-    var oil = engineTemperature('OilTemperature'), coolant = engineTemperature('WaterTemperature'), p = profile();
-    if (p.oilWarningC && oil !== null && oil >= p.oilWarningC) warnings.push('OIL TEMP');
-    if (p.coolantWarningC && coolant !== null && coolant >= p.coolantWarningC) warnings.push('COOLANT TEMP');
     var limit = detailNumber('pitLimitKmh'), speed = speedValue();
     if (telemetrySwitch(data('IsInPitLane')) === true && limit !== null && limit > 0 && speed !== null && speed > limit) warnings.push('PIT OVERSPEED');
     var penalty = detailValue('penalties'), damage = detailValue('damage');
@@ -234,20 +171,6 @@ function raceWarnings() {
     if (telemetrySwitch(detailValue('damageActive')) === true) warnings.push('DAMAGE: ' + text(damage));
     return warnings.length ? warnings.join(' / ') : 'WARNINGS / CHECK GAME';
   }
-function profile() {
-  var defaults = gaugeProfiles.defaults[mode()] || gaugeProfiles.defaults.race;
-  var id = String(data('CarId') || '').toLowerCase();
-  var selected = {};
-  for (var key in defaults) selected[key] = defaults[key];
-  for (var i = 0; i < gaugeProfiles.cars.length; i++) {
-    var entry = gaugeProfiles.cars[i];
-    if (entry.game.toLowerCase().replace(/[^a-z0-9]/g, '') === game() && entry.carId.toLowerCase() === id) {
-      for (var field in entry) selected[field] = entry[field];
-      break;
-    }
-  }
-  return selected;
-}
 function reportedRpmMax() {
   var values = [data('MaxRpm'), data('CarSettings_MaxRPM')];
   for (var i = 0; i < values.length; i++) {
@@ -256,17 +179,14 @@ function reportedRpmMax() {
   }
   return null;
 }
-function rpmMax() { return profile().rpmMax || reportedRpmMax() || profile().rpmFallback; }
+function rpmMax() { return reportedRpmMax(); }
 function rpmScale() {
-  var step = rpmMax() <= 4000 ? 500 : 1000;
-  return Math.ceil(rpmMax() / step) * step / 1000;
+  var max = rpmMax();
+  if (max === null) return 8;
+  var step = max <= 4000 ? 500 : 1000;
+  return Math.ceil(max / step) * step / 1000;
 }
-function rpmSource() { return profile().rpmMax ? 'OVERRIDE' : reportedRpmMax() === null ? 'PROFILE' : 'LIVE LIMIT'; }
-function speedMaximum() { return profile().speedKmh; }
-function speedStep() {
-  var max = speedMaximum();
-  return max <= 120 ? 10 : max <= 240 ? 20 : max <= 400 ? 40 : 50;
-}
+function rpmSource() { return rpmMax() === null ? 'UNAVAILABLE' : 'LIVE LIMIT'; }
 function speedValue() {
   var n = number(data('SpeedKmh'));
   return n === null || n < 0 ? null : n;
@@ -315,10 +235,27 @@ function tyreLife(key) {
   var n = number(data('TyreWear' + key));
   return n === null || n < 0 || n > 100 ? '--' : metric(n, 1, '%');
 }
+function tyreLifeFill(key) {
+  var n = live() ? number(data('TyreWear' + key)) : null;
+  var target = n === null || n < 0 || n > 100 ? 0 : n;
+  var now = new Date().getTime(), states = root.mangoTyreLife || (root.mangoTyreLife = {});
+  var state = states[key];
+  if (!state) state = states[key] = { from: target, target: target, start: now };
+  else {
+    var progress = Math.max(0, Math.min(1, (now - state.start) / 300));
+    var current = state.from + (state.target - state.from) * progress * progress * (3 - 2 * progress);
+    if (target !== state.target) {
+      state.from = current;
+      state.target = target;
+      state.start = now;
+    }
+  }
+  var amount = Math.max(0, Math.min(1, (now - state.start) / 300));
+  return state.from + (state.target - state.from) * amount * amount * (3 - 2 * amount);
+}
 function carSetting(key) {
   if (!live()) return '--';
-  var source = key === 'TractionControlCut' ? profile().tcCutProperty : null;
-  var n = number(source ? read(source) : data(key));
+  var n = number(data(key));
   if (n === null || n < 0) return '--';
   if (key === 'BrakeBias') return n > 100 ? '--' : metric(n, 1, '%');
   return Math.floor(n) !== n ? '--' : metric(n);
@@ -328,9 +265,7 @@ function weatherTemperature(key) {
 }
 function windSpeedMs() {
   if (!live()) return null;
-  var source = profile().windSpeedMsProperty;
-  var value = source ? read(source) :
-    (game() === 'ams2' || game() === 'automobilista2') ? read('DataCorePlugin.GameRawData.mWindSpeed') : null;
+  var value = (game() === 'ams2' || game() === 'automobilista2') ? read('DataCorePlugin.GameRawData.mWindSpeed') : null;
   var n = number(value);
   return n === null || n < 0 ? null : n;
 }
@@ -340,19 +275,19 @@ function windSpeed() {
 }
 function mappedBearing(key) {
   if (!live()) return null;
-  var source = profile()[key], n = source ? number(read(source)) : null;
+  var n = number(data(key));
   return n === null || n < 0 || n > 360 ? null : n % 360;
 }
 function windCompass() {
   if (windSpeedMs() === 0) return 'CALM';
-  var bearing = mappedBearing('windFromDegreesProperty');
+  var bearing = mappedBearing('WindFromDegrees');
   if (bearing === null) return 'FROM --';
   var compass = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
   return 'FROM ' + compass[Math.floor((bearing + 22.5) / 45) % 8] + ' ' + (Math.round(bearing) % 360) + ' deg';
 }
 function windRelative() {
   if (windSpeedMs() === 0) return 'CALM';
-  var bearing = mappedBearing('windFromDegreesProperty'), heading = mappedBearing('headingDegreesProperty');
+  var bearing = mappedBearing('WindFromDegrees'), heading = mappedBearing('HeadingDegrees');
   if (bearing === null || heading === null) return 'CAR --';
   var angle = (bearing - heading + 360) % 360;
   var sectors = ['HEADWIND', 'HEAD / RIGHT', 'RIGHT CROSS', 'TAIL / RIGHT',
@@ -388,8 +323,8 @@ function deltaColor() {
   return n === null ? '#FFB07840' : n <= 0 ? '#FF78A34D' : '#FFFF3B24';
 }
 function rpmRatio() {
-  var rpm = number(data('Rpms'));
-  return rpm === null || rpm < 0 ? null : Math.max(0, Math.min(1, rpm / rpmMax()));
+  var rpm = number(data('Rpms')), max = rpmMax();
+  return rpm === null || rpm < 0 || max === null ? null : Math.max(0, Math.min(1, rpm / max));
 }
 function fuelPercent() {
   var fuel = number(data('Fuel')), max = number(data('MaxFuel'));
@@ -402,18 +337,22 @@ function lowFuel() {
 function fuelColor() {
   return lowFuel() && new Date().getTime() % 1000 < 500 ? '#FFFF0000' : '#FFFFB02E';
 }
+function fuelGaugeColor() {
+  return lowFuel() && new Date().getTime() % 1000 < 500 ? '#FFFF0000' : '#FFEBCBB4';
+}
 function speedUnit() { return 'KM/H'; }
 function telemetrySwitch(value) {
   if (flag(value)) return true;
   if (value === false || value === 0 || value === 'False' || value === 'false' || value === '0') return false;
   return null;
 }
+function pitLimiterState() { return live() ? telemetrySwitch(data('PitLimiterOn')) : null; }
 function pitLimiterText() {
-  var enabled = live() ? telemetrySwitch(data('PitLimiterOn')) : null;
+  var enabled = pitLimiterState();
   return 'PIT LIMITER / ' + (enabled === null ? '--' : enabled ? 'ON' : 'OFF');
 }
 function pitLimiterColor() {
-  return live() && telemetrySwitch(data('PitLimiterOn')) === true ? '#FFFFB02E' : '#FFB07840';
+  return pitLimiterState() === true ? '#FFE2DFD5' : '#FFC5B39A';
 }
 function trackFlags() {
   if (!live() || mode() !== 'race') return [];
@@ -424,6 +363,9 @@ function trackFlags() {
     if (telemetrySwitch(data('Flag_' + names[i])) === true) result.push(names[i].toUpperCase());
   }
   return result;
+}
+function trackFlagActive(name) {
+  return trackFlags().indexOf(String(name || '').toUpperCase()) >= 0;
 }
 function trackFlagText() {
   var flags = trackFlags();
@@ -456,7 +398,7 @@ function statusColor() {
 const helperFunctions = new Map([...helpers.matchAll(/^function (\w+)\(/gm)].map((match, index, matches) =>
   [match[1], helpers.slice(match.index, matches[index + 1]?.index ?? helpers.length).trim()]));
 
-export function formula(expression, config = profiles) {
+export function formula(expression) {
   const required = new Set();
   function include(source) {
     for (const [name, body] of helperFunctions) {
@@ -468,8 +410,7 @@ export function formula(expression, config = profiles) {
   }
   include(expression);
   const definitions = [...helperFunctions].filter(([name]) => required.has(name)).map(([, body]) => body).join('\n');
-  const configSource = required.has('profile') ? 'var gaugeProfiles = ' + JSON.stringify(config) + ';\n' : '';
-  return { JSExt: 0, Interpreter: 1, Expression: configSource + definitions + '\n' + expression };
+  return { JSExt: 0, Interpreter: 1, Expression: definitions + '\n' + expression };
 }
 
 export function binding(expression) {
