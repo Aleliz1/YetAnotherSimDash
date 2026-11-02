@@ -77,7 +77,7 @@ sample data only and does not add those values to the native SimHub dashboard.
 Standby features two original soft amber/orange ribbon images drifting slowly
 behind Y.A.S.D branding. Native time-driven position bindings target 20
 updates/second; there is no video, web view, Sony artwork or network dependency.
-The five supported games are listed in one compact line.
+The six supported games are listed in one compact line.
 
 When a supported game becomes running, a **WELCOME / game name** message holds
 for 250ms, then the standby artwork and background fade out together over 900ms
@@ -129,6 +129,7 @@ exercise both the gear-change highlight (5 to 6) and redline rim. Switch from
 | Richard Burns Rally (RallySimFans / RSF) | Rally | Install and configure RSF's SimHub integration. Confirm the RBR game entry and available telemetry properties in your installed SimHub version; unsupported or non-normalized fields remain unavailable. |
 | Automobilista 2 | Circuit | Complete SimHub's game configuration. SimHub commonly requests **Project CARS 2** shared-memory mode in AMS2's System settings; follow the instructions displayed by your installed SimHub version. |
 | Le Mans Ultimate | Circuit / endurance | Use SimHub's **Game configuration** action and follow its instructions for LMU telemetry. |
+| RaceRoom Racing Experience (RRRE) | Circuit | Select RaceRoom in SimHub and follow its **Game configuration** instructions. Dashboard channels appear only when that integration publishes the normalized SimHub property. |
 
 ### Included readings
 
@@ -155,7 +156,7 @@ exercise both the gear-change highlight (5 to 6) and redline rim. Switch from
   or invalid; missing is never presented as OFF. This replaces the limiter
   message in the top-right status area, leaving other warnings visible independently.
   Use the preview's flag scenarios and **Pit limiter** state to inspect these.
-- **All five games:** the strip under the header shows **BRAKE BIAS** (%),
+- **All six games:** the strip under the header shows **BRAKE BIAS** (%),
   **ABS**, **TC**, **TC2 / CUT** and **ENGINE MAP**. These are read-only current
   settings, not buttons and not ABS/TC intervention indicators. Values come
   from SimHub's `BrakeBias`, `ABSLevel`, `TCLevel`, `TractionControlCut` and
@@ -170,7 +171,7 @@ exercise both the gear-change highlight (5 to 6) and redline rim. Switch from
 - **All driving layouts:** a staggered instrument cluster: a dominant RPM dial,
   numeric speed value (no speedometer dial), inset fuel gauge and digital gear
   including neutral/reverse. Throttle, brake, clutch and handbrake remain visible.
-- **All five games:** a compact FL/FR/RL/RR tyre panel shows temperature in
+- **All six games:** a compact FL/FR/RL/RR tyre panel shows temperature in
   Celsius and **LIFE LEFT** from SimHub's normalized `TyreWearFrontLeft`,
   `TyreWearFrontRight`, `TyreWearRearLeft` and `TyreWearRearRight` channels.
   These use remaining life: **100% = fresh, 0% = depleted**, not percent worn.
@@ -183,11 +184,17 @@ exercise both the gear-change highlight (5 to 6) and redline rim. Switch from
   The panel occupies the lower-right area on every game.
 - **Circuit:** position, current lap, current/previous/best lap times, delta to
   best, four tyre temperatures, same-class standings neighbours, all-class
-  proximity radar and a track minimap with cars in one shared panel.
-  The enlarged map is the focus; a compact 104 x 104 radar sits at the
-  bottom-left without covering it. The map panel includes **AIR** and **TRACK**
-  temperature in Celsius, plus
-  **WIND** speed in km/h. Temperatures use normalized `AirTemperature` and
+  proximity radar and an overall time-gap circle in one shared panel.
+  The circle places the four overall positions ahead and behind around the
+  player, using SimHub's native opponent name and player-relative gap controls.
+  Its ring represents race order, not physical track geometry; missing opponent
+  or gap data remains unavailable. It does not estimate pit-exit/rejoin position.
+  The start/finish tick calibrates on the first observed lap transition when a
+  supported lap-progress property is present; otherwise the panel reports that
+  progress data is unavailable and leaves the tick hidden.
+  The center block holds **AIR** and **TRACK** temperature, **WIND** speed, and
+  **FROM / CAR** wind direction; the 300 x 300 radar remains below the
+  circle. Temperatures use normalized `AirTemperature` and
   `TrackTemperature`; zero and sub-zero readings remain valid. Wind uses AMS2's
   raw `DataCorePlugin.GameRawData.mWindSpeed` (m/s, converted to km/h).
   Missing/invalid readings show `--` independently of map/position availability.
@@ -203,7 +210,7 @@ exercise both the gear-change highlight (5 to 6) and redline rim. Switch from
   neighbours. Timing is compacted to keep the names readable; long names may be
   clipped to their column. Missing standings show an explicit no-data heading.
 - **Pedals:** vertical, bottom-filling throttle, brake, clutch and handbrake
-  bars sit in the bottom-right of the gauge panel on all five games, labelled
+  bars sit in the bottom-right of the gauge panel on all six games, labelled
   **THR / BRK / CLT / HB**. Each percentage appears directly inside its bar,
   without a background. Missing readings show `--` with no fill.
   AC music is in the header; tyres are below the map.
@@ -218,7 +225,7 @@ exercise both the gear-change highlight (5 to 6) and redline rim. Switch from
 
 Below **10%** remaining fuel, the fuel gauge ticks/outline alternate red and
 warm white, while its **LOW FUEL** label/value alternate red and amber (500 ms
-each) on all five games. Nothing blinks
+each) on all six games. Nothing blinks
 out or becomes hidden. At 10% or above the warning colour stays amber.
 Missing/invalid fuel or tank capacity never triggers flashing; the
 unavailable indication stays steady. The status-strip warning remains readable
@@ -294,15 +301,16 @@ UNAVAILABLE** appears. The speed value reads `SpeedKmh` directly.
 - **Radar** uses SimHub's native world/relative-position radar and includes
   **all classes**, not only your class. It does not guess positions from
   lap-time gaps. All-class traffic is important when faster classes approach.
-- **Minimap** uses SimHub's native generated static map with player/opponent
-  markers, per-class positions and class colours where available. Its shape
-  comes from SimHub's recorded track geometry, not a bundled generic circuit.
+- **Time-gap circle** uses overall leaderboard positions relative to the
+  player's current position and SimHub's native opponent-gap control. It does
+  not use track coordinates, infer gaps, or predict pit exit. Names and gaps
+  depend on the game's leaderboard integration and may be absent or differ in
+  accuracy between game-reported and SimHub-computed values.
 
-Both positional controls depend on the game's exported coordinates, permitted
-map data and opponent telemetry. A track may need recording: enable SimHub's
-track-map recording if necessary and complete a clean timed lap, then check
-whether the outline loads. Relative-coordinate radar can also require a
-recorded map. Recording a lap cannot fix absent opponent telemetry.
+The radar depends on exported coordinates, permitted map data and opponent
+telemetry. A track may need recording: enable SimHub's track-map recording if
+necessary and complete a clean timed lap. Recording cannot fix absent opponent
+telemetry. The time-gap circle uses standings rather than map coordinates.
 
 **An empty radar/map is never an all-clear signal.** The panel keeps a warning
 even when player coordinates exist: those alone cannot prove that every rival
@@ -330,7 +338,7 @@ the right-aligned status, without moving the main panels. Title and artist
 are truncated to fit; Previous, Play/Pause and Next remain available.
 Other games keep the same fixed header spacing with media hidden.
 
-Across all five games, timing stays left, instruments/inputs stay central,
+Across all six games, timing stays left, instruments/inputs stay central,
 and map/radar (circuit) or the stage route and vehicle condition (Rally) stays right above the tyre
 panel. The left timing and central instrument backgrounds share a bottom
 edge. Circuit-only energy/boost readouts remain inside the central panel;

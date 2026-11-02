@@ -139,6 +139,31 @@ function generatedMap(name, x, y, width, height) {
   });
 }
 
+function raceCircleOpponent(name, x, y, width, height, positionOffset, gap = false) {
+  const rank = `var player = number(data('Position')); return player === null ? -1 : player + (${positionOffset});`;
+  const visible = `var player = number(data('Position')), rank = player + (${positionOffset}); return live() && player !== null && player > 0 && rank > 0 && rank !== player;`;
+  const nameItem = item(gap ? 'BuiltIn.LeaderboardOpponentGap' : 'BuiltIn.LeaderboardOpponentNameText',
+    name, x, y, width, height, {
+      IsTextItem: true, Font: 'Bahnschrift', FontSize: gap ? 13 : 14, FontWeight: gap ? 'Bold' : 'Normal',
+      FontStyle: 'Normal', Text: '--', TextColor: gap ? colors.amber : colors.white,
+      BackgroundColor: '#00000000', HorizontalAlignment: 1, VerticalAlignment: 1,
+      LeaderboardMode: 1, LeaderboardPosition: 1,
+      LeaderboardPositionRelativeToPlayer: false, LeaderboardPositionRelativeToPlayerOnTrack: false,
+      PlayerStyleEnabled: false, NameStyle: 0, NoDataText: '', EmptyValueText: '',
+      PlayerStyle: { FontSize: gap ? 13 : 14, TextColor: colors.cyan, FontWeight: 'Bold', FontStyle: 'Normal' },
+      OpponentStyle: { FontSize: gap ? 13 : 14, TextColor: gap ? colors.amber : colors.white,
+        FontWeight: gap ? 'Bold' : 'Normal', FontStyle: 'Normal' },
+      Bindings: {
+        Visible: binding(visible),
+        LeaderboardPosition: binding(rank),
+      },
+    });
+  if (gap) Object.assign(nameItem, {
+    GapMode: 2, Format: '0.000', TextBeforeValue: '', TextAfterValue: ' s',
+  });
+  return nameItem;
+}
+
 export function createDashboard(width) {
   const height = 1080;
   const margin = 32, gap = 20, usable = width - margin * 2;
@@ -410,10 +435,10 @@ export function createDashboard(width) {
   }
 
   panel(race, 'Map panel', rightX, top, leftW, fullPanelH);
-  race.push(label('Map title', '02 / TRACK MAP + RADAR', rightX + 24, top + 12, leftW - 48, 32, 20, colors.cyan));
-  const mapStatusY = top + 616, mapStatusHeight = 22;
+  race.push(label('Map title', '02 / RACE ORDER / TIME GAP CIRCLE', rightX + 24, top + 12, leftW - 48, 32, 20, colors.cyan));
+  const mapStatusY = top + 566, mapStatusHeight = 22;
   const radarTitleY = mapStatusY + mapStatusHeight;
-  const radarSize = Math.min(250, leftW - 48), radarX = rightX + (leftW - radarSize) / 2;
+  const radarSize = Math.min(300, leftW - 48), radarX = rightX + (leftW - radarSize) / 2;
   const radarY = radarTitleY + 22;
   race.push(label('Radar title', 'RADAR', rightX + 24, radarTitleY, leftW - 48, 22, 14, colors.cyan, undefined, 1));
   race.push(rect('Radar cross vertical', radarX + radarSize / 2, radarY, 1, radarSize, colors.line));
@@ -428,27 +453,84 @@ export function createDashboard(width) {
   race.push(rect('Radar border bottom', radarX, radarY + radarSize - radarBorder, radarSize, radarBorder, colors.muted));
   race.push(rect('Radar border left', radarX, radarY, radarBorder, radarSize, colors.muted));
   race.push(rect('Radar border right', radarX + radarSize - radarBorder, radarY, radarBorder, radarSize, colors.muted));
-  const weatherW = (leftW - 48) / 3;
+  const circleCenterX = rightX + leftW / 2, circleCenterY = top + 324, circleRadius = 184;
+  const startFinishSize = 12, startFinishRadius = circleRadius + 5;
+  const startFinishTick = rect('Race circle start finish tick', circleCenterX - startFinishSize / 2,
+    circleCenterY - circleRadius - startFinishSize / 2, startFinishSize, startFinishSize, colors.white, {
+      Visible: binding('return startFinishProgress() !== null;'),
+      Left: binding(`return startFinishMarkerCoordinate('x', ${circleCenterX}, ${circleCenterY}, ${startFinishRadius}, ${startFinishSize});`),
+      Top: binding(`return startFinishMarkerCoordinate('y', ${circleCenterX}, ${circleCenterY}, ${startFinishRadius}, ${startFinishSize});`),
+    });
+  Object.assign(startFinishTick, { RadiusTopLeft: 6, RadiusTopRight: 6, RadiusBottomLeft: 6, RadiusBottomRight: 6 });
+  race.push(startFinishTick);
+  const startFinishLabel = label('Race circle start finish label', 'S/F', circleCenterX - 18,
+    circleCenterY - circleRadius - 28, 36, 16, 11, colors.white, undefined, 1);
+  startFinishLabel.Bindings = {
+    Visible: binding('return startFinishProgress() !== null;'),
+    Left: binding(`return startFinishMarkerCoordinate('x', ${circleCenterX}, ${circleCenterY}, ${startFinishRadius + 18}, 36);`),
+    Top: binding(`return startFinishMarkerCoordinate('y', ${circleCenterX}, ${circleCenterY}, ${startFinishRadius + 18}, 16);`),
+  };
+  race.push(startFinishLabel);
+  for (let tick = 0; tick < 32; tick++) {
+    const angle = -90 + tick * 360 / 32, radians = angle * Math.PI / 180;
+    const dotX = circleCenterX + Math.cos(radians) * (circleRadius + 4);
+    const dotY = circleCenterY + Math.sin(radians) * (circleRadius + 4);
+    const dot = rect(`Race circle orbit ${tick}`, dotX - 2, dotY - 2, 4, 4,
+      tick % 4 === 0 ? colors.muted : colors.line);
+    Object.assign(dot, { RadiusTopLeft: 2, RadiusTopRight: 2, RadiusBottomLeft: 2, RadiusBottomRight: 2 });
+    race.push(dot);
+  }
+  const playerBadgeWidth = 252, playerBadgeHeight = 132;
+  const playerBadgeX = circleCenterX - playerBadgeWidth / 2, playerBadgeY = circleCenterY - playerBadgeHeight / 2;
+  const playerBadge = rect('Race circle player badge', playerBadgeX, playerBadgeY,
+    playerBadgeWidth, playerBadgeHeight, colors.inset);
+  Object.assign(playerBadge, { RadiusTopLeft: 8, RadiusTopRight: 8, RadiusBottomLeft: 8, RadiusBottomRight: 8 });
+  race.push(playerBadge);
+  race.push(label('Race circle player label', 'YOU', playerBadgeX + 12, playerBadgeY + 7,
+    playerBadgeWidth - 24, 15, 12, colors.muted, undefined, 1));
+  race.push(label('Race circle player position', 'P 3 / LAP 12', playerBadgeX + 12, playerBadgeY + 22,
+    playerBadgeWidth - 24, 20, 16, colors.cyan,
+    "return 'P ' + positive(data('Position')) + ' / LAP ' + positive(data('CurrentLap'));", 1));
+  race.push(rect('Race circle player divider', playerBadgeX + 14, playerBadgeY + 45,
+    playerBadgeWidth - 28, 1, colors.line));
+  const weatherWidth = (playerBadgeWidth - 24) / 3;
   [['Air', 'AIR', "weatherTemperature('AirTemperature')"],
     ['Track', 'TRACK', "weatherTemperature('TrackTemperature')"],
     ['Wind', 'WIND', 'windSpeed()']].forEach(([name, title, expression], index) => {
-    const x = rightX + 24 + index * weatherW;
-    race.push(label(`Map ${name} label`, title, x, top + 52, weatherW - 8, 22, 14, colors.muted));
-    race.push(label(`Map ${name}`, '--', x, top + 74, weatherW - 8, 26, 18, colors.white,
-      `return ${expression};`));
+    const x = playerBadgeX + 12 + index * weatherWidth;
+    race.push(label(`Map ${name} label`, title, x, playerBadgeY + 49, weatherWidth, 14, 11, colors.muted, undefined, 1));
+    race.push(label(`Map ${name}`, '--', x, playerBadgeY + 63, weatherWidth, 19, 14, colors.white,
+      `return ${expression};`, 1));
   });
-  race.push(label('Map Wind compass', 'FROM --', rightX + 24, top + 104, (leftW - 48) / 2, 22, 14, colors.muted,
-    'return windCompass();'));
-  race.push(label('Map Wind relative', 'CAR --', rightX + leftW / 2, top + 104, (leftW - 48) / 2, 22, 14, colors.cyan,
-    'return windRelative();'));
-  const mapX = rightX + 16, mapY = top + 134, mapW = leftW - 32, mapH = 480, mapBorder = 2;
-  race.push(generatedMap('Track minimap', mapX, mapY, mapW, mapH));
-  race.push(rect('Map viewport border top', mapX, mapY, mapW, mapBorder, colors.muted));
-  race.push(rect('Map viewport border bottom', mapX, mapY + mapH - mapBorder, mapW, mapBorder, colors.muted));
-  race.push(rect('Map viewport border left', mapX, mapY, mapBorder, mapH, colors.muted));
-  race.push(rect('Map viewport border right', mapX + mapW - mapBorder, mapY, mapBorder, mapH, colors.muted));
-  race.push(label('Map status', 'POSITION DATA UNAVAILABLE', rightX + 24, mapStatusY, leftW - 48, mapStatusHeight, 11, colors.muted,
-    "return coordinatesAvailable() ? 'NO MAP? DRIVE A CLEAN LAP TO RECORD IT' : 'POSITION DATA UNAVAILABLE';", 1));
+  race.push(rect('Race circle wind divider', playerBadgeX + 14, playerBadgeY + 84,
+    playerBadgeWidth - 28, 1, colors.line));
+  const windValueWidth = (playerBadgeWidth - 32) / 2, windValueY = playerBadgeY + 105;
+  const windFromX = playerBadgeX + 10, windCarX = windFromX + windValueWidth + 12;
+  race.push(label('Map Wind compass label', 'FROM', windFromX, playerBadgeY + 88, windValueWidth, 13, 10, colors.muted, undefined, 1));
+  race.push(label('Map Wind compass', '--', windFromX, windValueY, windValueWidth, 18, 12, colors.white,
+    'return windCompass().replace(/^FROM\\s+/, "");', 1));
+  race.push(label('Map Wind relative label', 'CAR', windCarX, playerBadgeY + 88, windValueWidth, 13, 10, colors.muted, undefined, 1));
+  race.push(label('Map Wind relative', '--', windCarX, windValueY, windValueWidth, 18, 12, colors.cyan,
+    'return windRelative().replace(/^CAR\\s+/, "");', 1));
+  const circleOffsets = [-4, -3, -2, -1, 1, 2, 3, 4];
+  circleOffsets.forEach((positionOffset, index) => {
+    const angle = -135 + index * 45, radians = angle * Math.PI / 180;
+    const x = circleCenterX + Math.cos(radians) * circleRadius;
+    const y = circleCenterY + Math.sin(radians) * circleRadius;
+    const markerSize = 14, isAhead = positionOffset < 0;
+    const marker = rect(`Race circle marker ${index}`, x - markerSize / 2, y - markerSize / 2,
+      markerSize, markerSize, isAhead ? colors.amber : colors.green);
+    Object.assign(marker, { RadiusTopLeft: markerSize / 2, RadiusTopRight: markerSize / 2,
+      RadiusBottomLeft: markerSize / 2, RadiusBottomRight: markerSize / 2 });
+    race.push(marker);
+    const labelRadius = circleRadius + 22;
+    const labelX = circleCenterX + Math.cos(radians) * labelRadius - 54;
+    const labelY = circleCenterY + Math.sin(radians) * labelRadius - 18;
+    race.push(raceCircleOpponent(`Race circle driver ${index} name`, labelX, labelY, 108, 18, positionOffset));
+    race.push(raceCircleOpponent(`Race circle driver ${index} gap`, labelX, labelY + 18, 108, 18, positionOffset, true));
+  });
+  race.push(label('Circle status', 'TIME GAPS / RELATIVE TO YOU', rightX + 24, mapStatusY, leftW - 48, mapStatusHeight, 11, colors.muted,
+    'return startFinishStatus();', 1));
   items.push(layer('Circuit layout', race, "return live() && mode() === 'race';"));
 
   const tyres = [];
@@ -662,8 +744,10 @@ export async function generate() {
 <option value="RichardBurnsRally">Richard Burns Rally / RSF</option>
 <option value="Automobilista2">Automobilista 2</option>
 <option value="LeMansUltimate">Le Mans Ultimate</option>
+<option value="RRRE">RaceRoom Racing Experience</option>
 <option value="idle">Standby</option></select></label>
-<label>State <select id="state"><option value="normal">Driving</option><option value="shift">Shift / overspeed</option>
+<label>State <select id="state"><option value="normal">Driving</option><option value="startFinish">S/F calibrated</option>
+<option value="shift">Shift / overspeed</option>
 <option value="pit">Pit limiter</option><option value="low">Low fuel</option><option value="missing">Missing telemetry</option>
 <option value="energyReady">KERS / DRS ready</option><option value="energyActive">KERS / DRS active</option>
 <option value="energyEmpty">KERS empty / DRS off</option>

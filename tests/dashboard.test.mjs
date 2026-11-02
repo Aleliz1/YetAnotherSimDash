@@ -37,7 +37,7 @@ test('lean formulas preserve full-helper behavior and cut embedded source by at 
     const full = helpers + '\n' + body;
     originalBytes += full.length;
     optimizedBytes += expression.length;
-    for (const game of ['AssettoCorsa', 'AssettoCorsaRally', 'Automobilista2', 'LeMansUltimate', 'Unknown']) {
+    for (const game of ['AssettoCorsa', 'AssettoCorsaRally', 'Automobilista2', 'LeMansUltimate', 'RRRE', 'Unknown']) {
       for (const data of [props(game), {}, props(game, { Fuel: 0, OpponentsCount: 47 })]) {
         const prop = key => data[key] ?? null;
         assert.deepEqual(new Function('$prop', 'Date', 'root', expression)(prop, FixedDate, {}),
@@ -65,11 +65,16 @@ test('all requested games and common game IDs route to exactly one driving mode'
     RichardBurnsRallyRSF: 'rally', RallySimFansRBR: 'rally',
     Automobilista2: 'race', 'Automobilista 2': 'race', AMS2: 'race',
     LeMansUltimate: 'race', 'Le Mans Ultimate': 'race', LMU: 'race',
+    RRRE: 'race', RaceRoom: 'race', 'RaceRoom Racing Experience': 'race',
+    RaceRoomRacingExperience: 'race',
     ETS2: 'unsupported', EuroTruckSimulator2: 'unsupported',
     ATS: 'unsupported', AmericanTruckSimulator: 'unsupported', UnknownGame: 'unsupported',
   };
   for (const [game, mode] of Object.entries(cases)) {
     assert.equal(evaluate('return mode();', props(game)), mode, game);
+    if (/^(RRRE|RaceRoom|RaceRoom Racing Experience|RaceRoomRacingExperience)$/.test(game)) {
+      assert.equal(evaluate('return gameName();', props(game)), 'RACEROOM RACING EXPERIENCE', game);
+    }
     if (/^(RichardBurnsRally|Richard Burns Rally|RBR|RBRRSF|RichardBurnsRallyRSF|RallySimFansRBR)$/.test(game)) {
       assert.equal(evaluate('return gameName();', props(game)), 'RICHARD BURNS RALLY', game);
     }
@@ -189,15 +194,15 @@ test('panel backgrounds enter after welcome without hiding live telemetry and re
       assert.equal(background.$type.includes('.RectangleItem,'), true);
       assert.ok(!background.Bindings.Visible, 'Clock is not gated by visibility');
     }
-    for (const name of ['Gear', 'Speed', 'RPM dial', 'Nearby radar', 'Track minimap', 'Throttle bar']) {
+    for (const name of ['Gear', 'Speed', 'RPM dial', 'Nearby radar', 'Race circle driver 0 name', 'Throttle bar']) {
       assert.equal(entries.find(i => i.Name === name).Bindings.Opacity, undefined, name);
     }
-    for (const game of ['AC', 'AMS2', 'LMU', 'ACRally', 'Unknown']) {
+    for (const game of ['AC', 'AMS2', 'LMU', 'RRRE', 'ACRally', 'Unknown']) {
       for (const background of dashboard.Screens[0].Items.filter(i => i.Bindings?.Opacity)) {
         const opacity = new Function('$prop', 'root', background.Bindings.Opacity.Formula.Expression)(
           key => props(game)[key] ?? null, {});
         const expected = background.Name.startsWith('Rally') ? game === 'ACRally' :
-          ['Timing panel', 'Map panel'].includes(background.Name) ? ['AC', 'AMS2', 'LMU'].includes(game) :
+          ['Timing panel', 'Map panel'].includes(background.Name) ? ['AC', 'AMS2', 'LMU', 'RRRE'].includes(game) :
             background.Name === 'Music panel' ? game === 'AC' : game !== 'Unknown';
         assert.equal(opacity, expected ? 100 : 0, `${game}: ${background.Name}`);
       }
@@ -395,7 +400,9 @@ test('night palette is warm across native layouts, dynamic colours and original 
     }
     assert.equal(items.find(i => i.Name === 'Gear').TextColor, '#FFFFB02E');
     assert.equal(items.find(i => i.Name === 'Map panel').BackgroundColor, '#FF101010');
-    assert.equal(items.find(i => i.Name === 'Track minimap').OverrideColorsWithCarClassColors, true);
+    assert.equal(items.some(i => i.Name === 'Track minimap'), false);
+    assert.equal(items.find(i => i.Name === 'Race circle marker 0').BackgroundColor, '#FFFFB02E');
+    assert.equal(items.find(i => i.Name === 'Race circle marker 4').BackgroundColor, '#FF78A34D');
   }
   assert.ok(!oldColors.test(helpers));
   for (const image of standbyImages) {
@@ -689,7 +696,7 @@ test('neutral, reverse, multi-digit and string gears are preserved', () => {
 
 test('car settings preserve independent levels, percentage bias and unavailable telemetry', () => {
   const channels = ['BrakeBias', 'ABSLevel', 'TCLevel', 'TractionControlCut', 'EngineMap'];
-  for (const game of ['AssettoCorsa', 'AssettoCorsaRally', 'RichardBurnsRally', 'Automobilista2', 'LeMansUltimate']) {
+  for (const game of ['AssettoCorsa', 'AssettoCorsaRally', 'RichardBurnsRally', 'Automobilista2', 'LeMansUltimate', 'RRRE']) {
     for (const key of channels) {
       const run = value => evaluate(`return carSetting('${key}');`, props(game, { [`DataCorePlugin.GameData.${key}`]: value }));
       assert.equal(run(0), key === 'BrakeBias' ? '0.0%' : '0');
@@ -723,7 +730,7 @@ test('car settings preserve independent levels, percentage bias and unavailable 
 });
 
 test('all supported games retain speed in KM/H', () => {
-  for (const game of ['AssettoCorsa', 'AssettoCorsaRally', 'Automobilista2', 'LeMansUltimate']) {
+  for (const game of ['AssettoCorsa', 'AssettoCorsaRally', 'Automobilista2', 'LeMansUltimate', 'RRRE']) {
     assert.equal(evaluate('return speedValue();', props(game, { 'DataCorePlugin.GameData.SpeedKmh': 160.9344 })), 160.9344);
     assert.equal(evaluate('return speedUnit();', props(game)), 'KM/H');
   }
@@ -745,11 +752,14 @@ test('map weather preserves valid temperatures and calm wind without inventing m
   }
   for (const width of [1920, 2560]) {
     const items = flatten(createDashboard(width).Screens[0].Items);
-    const panel = items.find(i => i.Name === 'Map panel');
-    for (const name of ['Air', 'Track', 'Wind']) {
-      const reading = items.find(i => i.Name === `Map ${name}`);
-      assert.ok(reading.Top >= panel.Top && reading.Top + reading.Height <= panel.Top + panel.Height);
-      assert.ok(reading.Left >= panel.Left && reading.Left + reading.Width < panel.Left + panel.Width);
+    const badge = items.find(i => i.Name === 'Race circle player badge');
+    assert.equal(badge.Width, 252);
+    assert.equal(badge.Height, 132);
+    for (const name of ['Map Air label', 'Map Air', 'Map Track label', 'Map Track', 'Map Wind label', 'Map Wind',
+      'Map Wind compass label', 'Map Wind compass', 'Map Wind relative label', 'Map Wind relative']) {
+      const reading = items.find(i => i.Name === name);
+      assert.ok(reading.Top >= badge.Top && reading.Top + reading.Height <= badge.Top + badge.Height, name);
+      assert.ok(reading.Left >= badge.Left && reading.Left + reading.Width <= badge.Left + badge.Width, name);
     }
   }
 });
@@ -947,6 +957,60 @@ test('position and class capability checks are explicit and never promise an all
   assert.equal(evaluate('return classAvailable();', { ...p, 'DataCorePlugin.GameData.PlayerClassOpponentsCount': null }), false);
 });
 
+test('lap progress probes per-game candidates and calibrates the start-finish tick on a lap wrap', () => {
+  const expression = formula('return lapProgress();').Expression;
+  const run = (game, values = {}) => {
+    const data = props(game, values);
+    return new Function('$prop', 'root', expression)(key => data[key] ?? null, {});
+  };
+  assert.equal(run('AC', { LapDistanceFraction: 0.42 }), 0.42);
+  assert.equal(run('AC', { TrackPositionPercent: 42 }), 0.42);
+  assert.equal(run('AC', { 'DataCorePlugin.GameRawData.Graphics.NormalizedSplinePosition': 0.27 }), 0.27);
+  assert.equal(run('AMS2', {
+    'DataCorePlugin.GameRawData.mCurrentLapDistance': 400,
+    'DataCorePlugin.GameRawData.mTrackLength': 1600,
+  }), 0.25);
+  assert.equal(run('LMU', {
+    'DataCorePlugin.GameRawData.mLapDist': 500,
+    'DataCorePlugin.GameRawData.mTrackLength': 2000,
+  }), 0.25);
+  assert.equal(run('RRRE', { 'DataCorePlugin.GameRawData.lap_distance_fraction': 0.75 }), 0.75);
+  for (const value of [-1, 101, true, 'invalid']) assert.equal(run('AMS2', { LapDistanceFraction: value }), null);
+  assert.equal(run('AMS2', {
+    'DataCorePlugin.GameRawData.mCurrentLapDistance': 2021,
+    'DataCorePlugin.GameRawData.mTrackLength': 2000,
+  }), null);
+
+  const calibrationExpression = formula('return startFinishProgress();').Expression;
+  const root = {};
+  const at = (lap, progress) => {
+    const data = props('AssettoCorsa', { CurrentLap: lap, LapDistanceFraction: progress });
+    return new Function('$prop', 'root', calibrationExpression)(key => data[key] ?? null, root);
+  };
+  assert.equal(at(4, 0.78), null, 'Wait for the first observed lap crossing');
+  assert.equal(at(4, 0.99), null);
+  assert.equal(at(5, 0.02), 0.02, 'Capture progress when the lap counter advances');
+  assert.equal(at(5, 0.45), 0.02, 'Keep the calibrated reference during the lap');
+  assert.equal(at(6, 0.01), 0.01, 'Refresh the reference at the next crossing');
+
+  const wrapRoot = {};
+  const wrap = (progress) => {
+    const data = props('AssettoCorsa', { CurrentLap: 4, LapDistanceFraction: progress });
+    return new Function('$prop', 'root', calibrationExpression)(key => data[key] ?? null, wrapRoot);
+  };
+  assert.equal(wrap(0.96), null);
+  assert.equal(wrap(0.03), 0.03, 'A normalized-progress wrap also identifies start/finish');
+
+  for (const width of [1920, 2560]) {
+    const items = flatten(createDashboard(width).Screens[0].Items);
+    const tick = items.find(i => i.Name === 'Race circle start finish tick');
+    assert.ok(tick);
+    assert.match(tick.Bindings.Visible.Formula.Expression, /startFinishProgress/);
+    assert.match(tick.Bindings.Left.Formula.Expression, /startFinishMarkerCoordinate/);
+    assert.match(tick.Bindings.Top.Formula.Expression, /startFinishMarkerCoordinate/);
+  }
+});
+
 for (const width of [1920, 2560]) {
   test(`${width}x1080 keeps digital speed inside the RPM dial and removes the speedometer`, () => {
     const items = flatten(createDashboard(width).Screens[0].Items);
@@ -1065,51 +1129,62 @@ for (const width of [1920, 2560]) {
       assert.ok(gap.Left + gap.Width <= timingPanel.Left + timingPanel.Width - 24, name);
     }
     assert.ok(items.find(i => i.Name === 'Class behind').Top > items.find(i => i.Name === 'Class ahead').Top);
-    const radar = items.find(i => i.Name === 'Nearby radar'), map = items.find(i => i.Name === 'Track minimap');
+    const radar = items.find(i => i.Name === 'Nearby radar');
     assert.match(radar.$type, /\.RadarItem,/);
-    assert.match(map.$type, /\.GeneratedStaticMapItem,/);
-    assert.equal(map.OverrideColorsWithCarClassColors, true);
-    assert.equal(map.DisplayPerClassPosition, true);
+    assert.equal(items.some(i => i.Name === 'Track minimap'), false, 'Circuit layout replaces the spatial map');
     const panel = items.find(i => i.Name === 'Map panel');
-    assert.equal(items.some(i => i.Name === 'Radar panel'), false, 'Map and radar share one panel');
-    assert.equal(radar.Width, 250);
-    assert.equal(radar.Height, 250);
+    assert.equal(items.some(i => i.Name === 'Radar panel'), false, 'Circle and radar share one panel');
+    assert.equal(radar.Width, 300);
+    assert.equal(radar.Height, 300);
     assert.equal(radar.Scale, 0.3);
     assert.equal(radar.Left, panel.Left + (panel.Width - radar.Width) / 2);
+    assert.equal(radar.Top + radar.Height, panel.Top + panel.Height);
     const radarTitle = items.find(i => i.Name === 'Radar title');
-    const mapStatus = items.find(i => i.Name === 'Map status');
-    assert.equal(radarTitle.Top, mapStatus.Top + mapStatus.Height);
+    const circleStatus = items.find(i => i.Name === 'Circle status');
+    assert.equal(radarTitle.Top, circleStatus.Top + circleStatus.Height);
     assert.equal(radar.Top, radarTitle.Top + radarTitle.Height);
-    assert.equal(items.find(i => i.Name === 'Radar title').Left, items.find(i => i.Name === 'Map status').Left);
-    assert.equal(items.find(i => i.Name === 'Radar title').Width, items.find(i => i.Name === 'Map status').Width);
+    assert.equal(items.find(i => i.Name === 'Radar title').Left, circleStatus.Left);
+    assert.equal(items.find(i => i.Name === 'Radar title').Width, circleStatus.Width);
     assert.ok(radar.Top > panel.Top + panel.Height / 2);
-    assert.equal(map.Width, panel.Width - 32);
-    assert.equal(map.Height, 480);
-    assert.equal(map.TrackWidth, 8);
-    assert.equal(map.TrackBorderWidth, 3);
-    for (const name of ['Map viewport border top', 'Map viewport border bottom', 'Map viewport border left', 'Map viewport border right',
-      'Radar border top', 'Radar border bottom', 'Radar border left', 'Radar border right']) {
+    const circleDrivers = items.filter(i => /^Race circle driver \d+ (name|gap)$/.test(i.Name));
+    assert.equal(circleDrivers.length, 16);
+    assert.equal(items.filter(i => /^Race circle orbit \d+$/.test(i.Name)).length, 32);
+    assert.ok(items.find(i => i.Name === 'Race circle player badge'));
+    const circleBadge = items.find(i => i.Name === 'Race circle player badge');
+    assert.equal(circleBadge.Top + circleBadge.Height / 2, panel.Top + 324);
+    assert.ok(circleBadge.Top + circleBadge.Height < items.find(i => i.Name === 'Circle status').Top);
+    for (const name of ['Radar border top', 'Radar border bottom', 'Radar border left', 'Radar border right']) {
       const border = items.find(i => i.Name === name);
       assert.ok(border.Left >= panel.Left && border.Left + border.Width <= panel.Left + panel.Width);
       assert.ok(border.Top >= panel.Top && border.Top + border.Height <= panel.Top + panel.Height);
     }
-    assert.ok(map.Width * map.Height > 3.5 * radar.Width * radar.Height);
+    for (const [index, positionOffset] of [-4, -3, -2, -1, 1, 2, 3, 4].entries()) {
+      const name = items.find(i => i.Name === `Race circle driver ${index} name`);
+      const gap = items.find(i => i.Name === `Race circle driver ${index} gap`);
+      assert.match(name.$type, /\.BuiltIn\.LeaderboardOpponentNameText,/);
+      assert.match(gap.$type, /\.BuiltIn\.LeaderboardOpponentGap,/);
+      assert.equal(name.LeaderboardMode, 1);
+      assert.equal(name.LeaderboardPositionRelativeToPlayer, false);
+      assert.equal(gap.GapMode, 2);
+      assert.equal(gap.LeaderboardPositionRelativeToPlayer, name.LeaderboardPositionRelativeToPlayer);
+      for (const component of [name, gap]) {
+        assert.ok(component.Left >= panel.Left && component.Left + component.Width <= panel.Left + panel.Width);
+        assert.ok(component.Top >= panel.Top && component.Top + component.Height <= panel.Top + panel.Height);
+        const rank = new Function('$prop', component.Bindings.LeaderboardPosition.Formula.Expression)(
+          key => props('AssettoCorsa', { Position: 10 })[key] ?? null);
+        assert.equal(rank, 10 + positionOffset);
+      }
+    }
     assert.equal(items.some(i => ['Radar status', 'Radar caution', 'Map caution'].includes(i.Name)), false);
     assert.equal(items.some(i => i.IsTextItem && /RADAR \/ ALL CLASSES|NO DOTS IS NOT ALL-CLEAR/.test(i.Text)), false);
-    assert.ok(map.Top + map.Height < radar.Top);
-    for (const component of [radar, map, ...items.filter(i => /^(Map |Radar )/.test(i.Name))]) {
+    for (const component of [radar, ...items.filter(i => /^(Map |Radar |Race circle )/.test(i.Name))]) {
       assert.ok(component.Left >= panel.Left && component.Left + component.Width <= panel.Left + panel.Width);
       assert.ok(component.Top >= panel.Top && component.Top + component.Height <= panel.Top + panel.Height);
     }
-    for (const component of [radar, map]) {
-      assert.equal('Opponents' in component, false);
-      assert.equal('MapReady' in component, false);
+    assert.equal('Opponents' in radar, false);
+    assert.equal('MapReady' in radar, false);
+    for (const component of [radar]) {
       assert.equal('LeaderboardMode' in component, false);
-    }
-    for (const name of ['Air', 'Track', 'Wind']) {
-      const reading = items.find(i => i.Name === `Map ${name}`);
-      assert.ok(reading.Top >= panel.Top && reading.Top + reading.Height < map.Top);
-      assert.ok(reading.Left >= panel.Left && reading.Left + reading.Width < panel.Left + panel.Width);
     }
     const circuit = items.find(i => i.Name === 'Circuit layout');
     for (const game of ['AssettoCorsa', 'Automobilista2', 'LeMansUltimate', 'AssettoCorsaRally', 'ETS2', 'ATS']) {

@@ -216,7 +216,8 @@
       Gear: 5, Fuel: 62, MaxFuel: 100,
       BrakeBias: 54.2, ABSLevel: 3, TCLevel: 4, TractionControlCut: 2, EngineMap: 1,
       AirTemperature: 22, TrackTemperature: 31.5,
-      Position: 3, CurrentLap: 12,
+      Position: 3, CurrentLap: state === 'startFinish' ? 13 : 12,
+      LapDistanceFraction: state === 'startFinish' ? 0.02 : 0.46,
       CurrentLapTime: '00:01:42.368', LastLapTime: '00:01:43.106', BestLapTime: '00:01:42.012',
       WaterTemperature: 88, OilTemperature: 104, Throttle: 82 + phase * 18, Brake: 0, Clutch: 0, Handbrake: 0,
       TyreTemperatureFrontLeft: 84, TyreTemperatureFrontRight: 88,
@@ -237,11 +238,16 @@
       if (tyreControl.value === 'missing') delete data['TyreTemperature' + corner];
     }
     demoDrivers = [
+      { name: 'S. PARK / GT', carClass: 'GT', gapToPlayer: -5.381 },
+      { name: 'R. QUINN / LMP', carClass: 'LMP', gapToPlayer: -3.204 },
       { name: 'M. VIOLET / LMP', carClass: 'LMP', classPosition: 1, mapIndex: 3, nearby: true, x: -4, y: 9 },
       { name: 'A. RIVERS / GT', carClass: 'GT', classPosition: 1, gapToPlayer: -2.456, mapIndex: 4, nearby: true, x: 4, y: 14 },
+      { name: 'C. NORTH / GT', carClass: 'GT', gapToPlayer: -0.812 },
       { name: 'YOU / GT', carClass: 'GT', classPosition: 2, player: true, mapIndex: 5, x: 0, y: 0 },
-      { name: 'P. LILAC / LMP', carClass: 'LMP', classPosition: 2, mapIndex: 6, nearby: true, x: -4, y: -6 },
+      { name: 'P. LILAC / LMP', carClass: 'LMP', classPosition: 2, gapToPlayer: 0.934, mapIndex: 6, nearby: true, x: -4, y: -6 },
       { name: 'J. MEADOW / GT', carClass: 'GT', classPosition: 3, gapToPlayer: 1.234, mapIndex: 7, nearby: true, x: 5, y: -13 },
+      { name: 'T. VALE / GT', carClass: 'GT', gapToPlayer: 2.678 },
+      { name: 'D. WELLS / LMP', carClass: 'LMP', gapToPlayer: 4.052 },
     ];
     if (state === 'fullGrid') {
       for (let i = 6; i <= 47; i++) demoDrivers.push({ name: `DEMO DRIVER ${i}`, carClass: i % 2 ? 'GT' : 'LMP' });
@@ -250,7 +256,7 @@
     if (state === 'leader') demoDrivers = demoDrivers.filter(d => d.name !== 'A. RIVERS / GT');
     if (state === 'last') demoDrivers = demoDrivers.filter(d => d.name !== 'J. MEADOW / GT');
     if (state === 'solo') demoDrivers = demoDrivers.filter(d => d.player || d.carClass !== 'GT');
-    for (const driver of demoDrivers.filter(d => !d.player && d.carClass === 'GT')) {
+    for (const driver of demoDrivers.filter(d => !d.player)) {
       if (state === 'noGap') driver.gapToPlayer = null;
       if (state === 'zeroGap') driver.gapToPlayer = 0;
       if (state === 'lapped') {
