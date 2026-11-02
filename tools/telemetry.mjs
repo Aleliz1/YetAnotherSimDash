@@ -19,15 +19,20 @@ function isRichardBurnsRally() {
   return g === 'rbr' || g === 'richardburnsrally' || g === 'rbrrsf' ||
     g === 'richardburnsrallyrsf' || g === 'rallysimfansrbr';
 }
+function isRaceRoom() {
+  var g = game();
+  return g === 'rrre' || g === 'raceroom' || g === 'raceroomracingexperience';
+}
 function mode() {
   var g = game();
   if (g === 'assettocorsarally' || g === 'acrally' || isRichardBurnsRally()) return 'rally';
-  if (g === 'assettocorsa' || g === 'ac' || g === 'automobilista2' || g === 'ams2' || g === 'lemansultimate' || g === 'lmu') return 'race';
+  if (g === 'assettocorsa' || g === 'ac' || g === 'automobilista2' || g === 'ams2' || g === 'lemansultimate' || g === 'lmu' || isRaceRoom()) return 'race';
   return 'unsupported';
 }
 function gameName() {
   var g = game();
   if (isRichardBurnsRally()) return 'RICHARD BURNS RALLY';
+  if (isRaceRoom()) return 'RACEROOM RACING EXPERIENCE';
   if (mode() === 'rally') return 'ASSETTO CORSA RALLY';
   if (g === 'assettocorsa' || g === 'ac') return 'ASSETTO CORSA';
   if (g === 'automobilista2' || g === 'ams2') return 'AUTOMOBILISTA 2';
@@ -192,6 +197,80 @@ function speedValue() {
   return n === null || n < 0 ? null : n;
 }
 function needleValue(n, max) { n = number(n); return n === null ? 0 : Math.max(0, Math.min(max, n)); }
+function normalizedLapProgress(value) {
+  var n = number(value);
+  if (n === null || n < 0 || n > 1) return null;
+  return n >= 1 ? 0 : n;
+}
+function lapProgressPercent(value) {
+  var n = number(value);
+  return n === null || n < 0 || n > 100 ? null : normalizedLapProgress(n / 100);
+}
+function firstNumber(keys) {
+  for (var i = 0; i < keys.length; i++) {
+    var n = number(read(keys[i]));
+    if (n !== null) return n;
+  }
+  return null;
+}
+function lapProgress() {
+  var keys = ['LapDistanceFraction', 'LapProgress', 'NormalizedSplinePosition'];
+  if (game() === 'assettocorsa' || game() === 'ac') {
+    keys.push('DataCorePlugin.GameRawData.Graphics.NormalizedSplinePosition');
+  }
+  if (isRaceRoom()) {
+    keys.push('DataCorePlugin.GameRawData.lap_distance_fraction');
+    keys.push('DataCorePlugin.GameRawData.LapDistanceFraction');
+  }
+  for (var i = 0; i < keys.length; i++) {
+    var progress = normalizedLapProgress(data(keys[i]) === undefined ? read(keys[i]) : data(keys[i]));
+    if (progress !== null) return progress;
+  }
+  var percent = lapProgressPercent(data('TrackPositionPercent'));
+  if (percent !== null) return percent;
+  var distanceKeys = ['DataCorePlugin.GameData.CurrentLapDistance', 'CurrentLapDistance', 'LapDistance'];
+  var lengthKeys = ['DataCorePlugin.GameData.TrackLength', 'TrackLength', 'DataCorePlugin.GameData.NewData.TrackLength'];
+  if (game() === 'ams2' || game() === 'automobilista2') {
+    distanceKeys.unshift('DataCorePlugin.GameRawData.mCurrentLapDistance');
+    lengthKeys.unshift('DataCorePlugin.GameRawData.mTrackLength');
+  } else if (game() === 'lemansultimate' || game() === 'lmu') {
+    distanceKeys.unshift('DataCorePlugin.GameRawData.mLapDist');
+    lengthKeys.unshift('DataCorePlugin.GameRawData.mTrackLength');
+  } else if (isRaceRoom()) {
+    distanceKeys.unshift('DataCorePlugin.GameRawData.lap_distance');
+    lengthKeys.unshift('DataCorePlugin.GameRawData.layout_length');
+  }
+  var distance = firstNumber(distanceKeys), length = firstNumber(lengthKeys);
+  if (distance === null || length === null || distance < 0 || length <= 0 || distance > length * 1.01) return null;
+  var ratio = distance / length;
+  return ratio >= 1 ? 0 : ratio;
+}
+function startFinishProgress() {
+  var progress = lapProgress(), lap = number(data('CurrentLap'));
+  if (progress === null || lap === null || lap <= 0) return null;
+  var id = game() + ':' + String(data('TrackName') || data('TrackConfig') || '');
+  var state = root.mangoStartFinish;
+  if (!state || state.id !== id) {
+    root.mangoStartFinish = state = { id: id, lap: lap, lastProgress: progress, progress: null };
+  } else {
+    if (lap > state.lap || (state.lastProgress > 0.90 && progress < 0.10)) state.progress = progress;
+    state.lap = lap;
+    state.lastProgress = progress;
+  }
+  return state.progress;
+}
+function startFinishMarkerCoordinate(axis, centerX, centerY, radius, size) {
+  var progress = startFinishProgress();
+  if (progress === null) return -size;
+  var angle = (progress * 360 - 90) * Math.PI / 180;
+  return (axis === 'x' ? centerX + Math.cos(angle) * radius : centerY + Math.sin(angle) * radius) - size / 2;
+}
+function startFinishStatus() {
+  var progress = lapProgress();
+  if (progress === null) return 'LAP PROGRESS UNAVAILABLE / CHECK SIMHUB PROPERTIES';
+  return startFinishProgress() === null ? 'LAP ' + Math.round(progress * 100) + '% / COMPLETE A LAP TO CALIBRATE S/F' :
+    'S/F CALIBRATED / LAP ' + Math.round(progress * 100) + '%';
+}
 function coordinatesAvailable() {
   return live() && flag(data('MapAllowed')) && number(data('CarCoordinates01')) !== null && number(data('CarCoordinates03')) !== null;
 }
